@@ -84,13 +84,15 @@ Install pre-commit hooks:
 
 ## Usage
 
-`from zoraspeech import Listener, Architecture, Weights, Interpreter, Evals`
+```
+from zoraspeech import Listener, Architecture, Weights, Interpreter, Evals
 
 
-`listener = listener(model_architecture: architecture, model_weights: weights) # model_architecture and model_weights can also be loaded by a string. model_weights are loaded in locally for now but would be retreived from a community-based data trust eventually` 
+listener = listener(model_architecture: architecture, model_weights: weights) # model_architecture and model_weights can also be loaded by a string. model_weights are loaded in locally for now but would be retreived from a community-based data trust eventually
 
 
-`listener.listen(audio_buffer)`
+listener.listen(audio_buffer)
 
 
-`listener.interpret(interpreter) # defined by model architecture, must be registered somehow`
+listener.interpret(interpreter) # defined by model architecture, must be registered somehow
+```
