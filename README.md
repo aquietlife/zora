@@ -56,6 +56,8 @@ Zora comes with two models:
 
 - numpy
 
+- pre-commit
+
 # Development
 
 Create a virtual environment
@@ -71,6 +73,10 @@ Install the package in editable mode
 `pip install -e .`
 
 Load up `notebooks/develoment.ipynb` for examples on how to develop the library
+
+Install pre-commit hooks:
+
+`pre-commit install`
 
 ## Installation
 
