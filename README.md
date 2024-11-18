@@ -8,7 +8,7 @@ Zora is an automatic speech recognition (ASR) library and platform focused on in
 
 - Open weights: All of the model weights are also open and available on the Zora web platform
 
-- Open implementation: All models implementations are provided
+- Open implementation: All models implementations are provided and are made to be as transparent as possible
 
 - Open data: When needed, all data used to train models are free, open-source, and in the public domain
 
@@ -37,10 +37,10 @@ Zora comes with two models:
 - Audrey: A CNN-based speech recognizer. A current implementation shows you how to make an ASR system that recognizes digits (0-9). This model also has interpretability functionality like feature visualization.
 
 # General ASR
-- OpenConformer: A transformer-based speech recognizer that uses public domain, open datasets for general purpose speech recognition. You are also able to fine-tune the model to make it better at hearing specific voices you want it to recognize. This model also has interpretability functionality through mechanistic interpretability techniques.
+- Speech-Transformer: A transformer-based speech recognizer that uses public domain, open datasets for general purpose speech recognition. You are also able to fine-tune the model to make it better at hearing specific voices you want it to recognize. This model also has interpretability functionality through mechanistic interpretability techniques.
 
 # Metrics and Evaluation
-- Weights and Biases
+- Facilitated through Weights and Biases
 
 # Zora Platform
 
@@ -84,10 +84,13 @@ Install pre-commit hooks:
 
 ## Usage
 
-`from zoraspeech import listener, architecture, weights, interpreter, eval`
+`from zoraspeech import Listener, Architecture, Weights, Interpreter, Evals`
+
 
 `listener = listener(model_architecture: architecture, model_weights: weights) # model_architecture and model_weights can also be loaded by a string. model_weights are loaded in locally for now but would be retreived from a community-based data trust eventually` 
 
+
 `listener.listen(audio_buffer)`
+
 
 `listener.interpret(interpreter) # defined by model architecture, must be registered somehow`
