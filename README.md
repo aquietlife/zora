@@ -1,6 +1,6 @@
 # Zora
 
-Zora is an automatic speech recognition (ASR) library and platform focused on interpretability, openness, and personalization.
+Zora is an interpretable machine listening library and platform, focused on voice and speech. The library currently supports automatic speech recognition (ASR), focused on interpretability, openness, and personalization.
 
 ## Values
 
@@ -20,13 +20,9 @@ Zora is an automatic speech recognition (ASR) library and platform focused on in
 
 - Community-based training: Current model weights were trained on Heap, a community computer cluster at Recurse Center
 
-- Approachable: Zora is a small library that is meant to be easily understood and modified by you
+- Small, Approachable, and Transparent: Zora is a simple library that is meant to be easily understood and modified by you for experimenting with machine listening models
 
-- Transparent
-
-- Small
-
-- Metrics and Evaluations
+-  Measurable: Zora comes with support for metrics and evaluations to understand how it performs and what improvements can be made
 
 # Models
 
@@ -37,9 +33,11 @@ Zora comes with two models:
 - Audrey: A CNN-based speech recognizer. A current implementation shows you how to make an ASR system that recognizes digits (0-9). This model also has interpretability functionality like feature visualization.
 
 # General ASR
+
 - Speech-Transformer: A transformer-based speech recognizer that uses public domain, open datasets for general purpose speech recognition. You are also able to fine-tune the model to make it better at hearing specific voices you want it to recognize. This model also has interpretability functionality through mechanistic interpretability techniques.
 
 # Metrics and Evaluation
+
 - Facilitated through Weights and Biases
 
 # Zora Platform
@@ -48,7 +46,7 @@ Zora comes with two models:
 
 # Open Training
 
-- On Heap, show specs of machine it was trained on
+- Trained on Heap (show specs of machine it was trained on)
 
 # How to Use
 
