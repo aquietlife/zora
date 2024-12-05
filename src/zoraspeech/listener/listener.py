@@ -13,7 +13,7 @@ class Listener:
         print(f"Using device: {device}")
 
         # load the model
-        self.model_architecture.load_state_dict(t.load(self.model_weights, map_location=device))
+        self.model_architecture.load_state_dict(t.load(self.model_weights, map_location=device, weights_only=True))
 
         # load the interpreter
         self.interpreter.load(self.model_architecture)
