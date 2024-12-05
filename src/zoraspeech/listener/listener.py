@@ -2,10 +2,11 @@ import numpy as np
 import torch as t
 
 class Listener:
-    def __init__(self, model_architecture, model_weights, interpreter):
+    def __init__(self, model_architecture, model_weights, interpreter, learner=None):
         self.model_architecture = model_architecture
         self.model_weights = model_weights
         self.interpreter = interpreter
+        self.learner = learner
 
     def load(self):
         # get our device
@@ -26,3 +27,6 @@ class Listener:
 
     def interpret(self, spec):
         self.interpreter.interpret(spec)
+
+    def learn(self):
+        self.learner.learn()
