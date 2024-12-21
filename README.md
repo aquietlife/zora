@@ -20,9 +20,9 @@ Zora is an interpretable machine listening library and platform, focused on voic
 
 - Personal: Zora is made for you. It isn't optimized for all, and instead provides ways to made ASR models that are specific, not general. It's not for all, but for those that need.
 
-- Local-first: Everything is run on your own computer, and nothing is sent to a remote server / "the cloud"
+- Local-First: Everything is run on your own computer, and nothing is sent to a remote server / "the cloud"
 
-- Community-based training: Current model weights were trained on Heap, a community computer cluster at Recurse Center
+- Community-based Training: Current model weights were trained on Heap, a community computer cluster at Recurse Center
 
 - Small, Approachable, and Transparent: Zora is a simple library that is meant to be easily understood and modified by you for experimenting with machine listening models
 
