@@ -54,7 +54,7 @@ class SpeechTransformer(nn.Module):
         self.batch_norm_two = nn.BatchNorm2d(self.cfg.n_out_channels) # TODO: Look at ARENA implementation
 
 
-    def forward(self, x: Float[t.Tensor, "batch time_steps freq_bins"]) -> Float[t.Tensor, "batch reduced_time reduced_freq"]:
+    def forward(self, x: Float[t.Tensor, "batch time_steps freq_bins"]) -> Float[t.Tensor, "batch reduced_time d_model"]: # type: ignore
         """Transform input spectrogram through the Speech Transformer.
         
         The forward pass consists of:
@@ -136,8 +136,8 @@ class Attention(nn.Module):
     
     def forward(
             self, 
-            normalized_resid_pre: Float[t.Tensor, "batch posn d_model"]
-            ) -> Float[t.Tensor, "batch posn d_model"]:
+            normalized_resid_pre: Float[t.Tensor, "batch posn d_model"] # type: ignore
+            ) -> Float[t.Tensor, "batch posn d_model"]: # type: ignore
         # linear map
 
 
@@ -170,8 +170,8 @@ class Attention(nn.Module):
 
         return result + self.b_O
     
-    def apply_causal_mask(self, attn_scores: Float[t.Tensor, "batch n_heads query_pos key_pos"]
-                          ) -> Float[t.Tensor, "batch n_heads query_pos key_pos"]:
+    def apply_causal_mask(self, attn_scores: Float[t.Tensor, "batch n_heads query_pos key_pos"] # type: ignore
+                          ) -> Float[t.Tensor, "batch n_heads query_pos key_pos"]: # type: ignore
         mask = t.triu(t.ones_like(attn_scores), diagonal = 1).to(self.cfg.device)
         return attn_scores.masked_fill_(mask != 0, self.IGNORE)
 
