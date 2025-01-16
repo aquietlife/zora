@@ -53,6 +53,7 @@ class SpeechTransformer(nn.Module):
         self.batch_norm_one = nn.BatchNorm2d(self.cfg.n_out_channels) # TODO: Look at ARENA implementation
         self.batch_norm_two = nn.BatchNorm2d(self.cfg.n_out_channels) # TODO: Look at ARENA implementation
 
+        self.linear = nn.Linear(self.cfg.n_freq_bins//4 * self.cfg.n_out_channels, self.cfg.d_model)
 
     def forward(self, x: Float[t.Tensor, "batch time_steps freq_bins"]) -> Float[t.Tensor, "batch reduced_time d_model"]: # type: ignore
         """Transform input spectrogram through the Speech Transformer.
@@ -87,8 +88,12 @@ class SpeechTransformer(nn.Module):
         x = self.conv2d_layer_two(x)
         x = self.relu(x)
         x = self.batch_norm_two(x)
-        
+
+        # Reshape        
+        x = einops.rearrange(x, "b c ts fb -> b ts (c fb)")
+
         # Linear - project to d_model dimension (this is where embedding happens!)
+        x = self.linear(x)
 
         # Reshape
         #x = einops.rearrange(x, "b ts d_model-> b (ts fb) feature_dim", feature_dim=self.cfg.d_model) # b ts fb
