@@ -15,6 +15,23 @@ def test_speech_transformer_forward_pass():
 
     assert output.shape == (batches, time_steps // 4, model.cfg.d_model) #TODO update this as we continue to build out speech transformer
 
+def test_positional_encoding():
+    model = SpeechTransformer()
+    cfg = Config()
+    batches = 2
+    time_steps = 100
+    d_model = cfg.d_model
+    
+    input_tensor = t.randn(batches, time_steps, d_model)
+    output_tensor = model.positional_encoding(input_tensor)
+
+    assert output_tensor.shape == (batches, time_steps, d_model)
+
+    assert not t.allclose(output_tensor[:, 0, :], output_tensor[:, 1, :])
+
+    assert t.allclose(output_tensor[0, 0, :] - input_tensor[0, 0, :],
+                      output_tensor[1, 0, :] - input_tensor[1, 0, :])
+
 def test_attention_output_shape():
 
     cfg = Config()

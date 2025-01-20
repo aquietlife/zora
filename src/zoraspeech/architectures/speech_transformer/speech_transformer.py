@@ -15,16 +15,15 @@ class Config:
     conv2d_stride = 2
     conv2d_padding = 1
     d_model: int = 256 # dimension of the feature vector that represents each posiiton in the sequence
-    
+    n_encoder_layers = 6
+    n_decoder_layers = 6 
     debug: bool = True
     layer_norm_eps: float = 1e-5
-    d_vocab: int = 50257
     init_range: float = 0.02
-    n_ctx: int = 1024
     d_head: int = 64
     d_mlp: int = 3072
-    n_heads: int = 12
-    n_layers: int = 12
+    n_heads: int = 4
+    dff=1024
     device = t.device("cuda" if t.cuda.is_available() else "cpu")
 
 class SpeechTransformer(nn.Module):
@@ -113,6 +112,7 @@ class SpeechTransformer(nn.Module):
 
         # Input Encoding (Positional Encoding) - add positional information to embedded sequence
 
+        x = self.positional_encoding(x)
         # Attention Blocks - process the sequence
             # Layer Norm
             # Multi-Head Attention
@@ -122,6 +122,34 @@ class SpeechTransformer(nn.Module):
         # Layer Norm
 
         return x
+    
+    def positional_encoding(self, x: Float[t.Tensor, "batch reduced_time_steps d_model"]) -> Float[t.Tensor, "batch posn d_model"]: #type: ignore
+
+        # get sequence length from input x
+        seq_length = x.shape[1]
+        position_indices = t.arange(0, seq_length, device=x.device )
+        dimension_indices = t.arange(0, self.cfg.d_model, device=x.device)
+
+        exp = (dimension_indices * 2) / self.cfg.d_model
+
+        angle_rates = t.pow(10000, exp)
+
+        angles = t.outer(position_indices, 1 / angle_rates)
+
+        # create a positional encoding tensor
+        pos_encoding = t.zeros_like(angles) # [seq_length, d_model]
+
+        # apply sin to even indices and cos to odd indices
+        pos_encoding[:, 0::2] = t.sin(angles[:, 0::2])
+        pos_encoding[:, 1::2] = t.cos(angles[:, 1::2])
+
+        pos_encoding = einops.repeat(pos_encoding, "seq_length d_model -> batch seq_length d_model", batch=x.shape[0])
+
+        assert x.ndim == 3
+        assert x.shape[-1] == self.cfg.d_model
+
+        return x + pos_encoding
+        
 
 class Attention(nn.Module):
 
