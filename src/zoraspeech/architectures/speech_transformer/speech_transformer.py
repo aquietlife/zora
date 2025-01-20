@@ -75,25 +75,38 @@ class SpeechTransformer(nn.Module):
             Encoded sequence of shape [batch, reduced_time, d_model]
             where reduced_time = time_steps/4 due to the strided convolutions
         """
-
+        input_time_steps = x.shape[1]
         # Add a channel dimension to our input
-        x = einops.rearrange(x, "b ts fb -> b c ts fb", c=1)
+        x = einops.repeat(x, "b ts fb -> b c ts fb", c=1)
+        assert x.shape[1] == 1
+        assert x.shape[2] == input_time_steps
+        assert x.shape[3] == self.cfg.n_freq_bins
 
         # Conv2d + ReLu + BatchNorm- initial feature extraction
         x = self.conv2d_layer_one(x)
         x = self.relu(x)
         x = self.batch_norm_one(x)
+        assert x.shape[1] == self.cfg.n_out_channels
+        assert x.shape[2] == input_time_steps // 2
+        assert x.shape[3] == self.cfg.n_freq_bins // 2
 
         # Conv2d + ReLu + BatchNorm - more feature extraction
         x = self.conv2d_layer_two(x)
         x = self.relu(x)
         x = self.batch_norm_two(x)
+        assert x.shape[1] == self.cfg.n_out_channels
+        assert x.shape[2] == input_time_steps // 4
+        assert x.shape[3] == self.cfg.n_freq_bins // 4
 
         # Reshape        
         x = einops.rearrange(x, "b c ts fb -> b ts (c fb)")
+        assert x.shape[1] == input_time_steps // 4
+        assert x.shape[2] == self.cfg.n_out_channels * (self.cfg.n_freq_bins // 4)
 
         # Linear - project to d_model dimension (this is where embedding happens!)
         x = self.linear(x)
+        assert x.shape[1] == input_time_steps // 4
+        assert x.shape[2] == self.cfg.d_model
 
         # Reshape
         #x = einops.rearrange(x, "b ts d_model-> b (ts fb) feature_dim", feature_dim=self.cfg.d_model) # b ts fb

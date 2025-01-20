@@ -1,16 +1,19 @@
 import torch as t
 from zoraspeech.architectures.speech_transformer.speech_transformer import SpeechTransformer, Attention, Config
 
-'''
+
 def test_speech_transformer_forward_pass():
     # TODO Modify this to match actual tensor size of (batch_size, time_steps, frequency_bins)
     model = SpeechTransformer()
-    input_tensor = t.empty(32, 100, 80)
-    output = model(input_tensor)
-    print(output)
+    
+    batches = 2
+    time_steps = 100
+    freq_bins = model.cfg.n_freq_bins
 
-    assert model(input_tensor).shape == (32, 100, 80)
-'''
+    input_tensor = t.randn(batches, time_steps, freq_bins)
+    output = model(input_tensor)
+
+    assert output.shape == (batches, time_steps // 4, model.cfg.d_model) #TODO update this as we continue to build out speech transformer
 
 def test_attention_output_shape():
 
@@ -24,4 +27,3 @@ def test_attention_output_shape():
     attention = Attention(cfg).to(cfg.device)
 
     assert attention.forward(input).shape == (batch_size, seq_len, d_model)
-
