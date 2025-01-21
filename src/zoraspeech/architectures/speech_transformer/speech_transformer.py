@@ -8,6 +8,8 @@ import einops
 # TODO annotate what each of these hyperparameters meanj
 @dataclass
 class Config:
+    debug: bool = True
+    device = t.device("cuda" if t.cuda.is_available() else "cpu")
     n_freq_bins = 80
     n_channels = 1
     n_out_channels = 64 # from the paper
@@ -17,14 +19,11 @@ class Config:
     d_model: int = 256 # dimension of the feature vector that represents each posiiton in the sequence
     n_encoder_layers = 6
     n_decoder_layers = 6 
-    debug: bool = True
     layer_norm_eps: float = 1e-5
     init_range: float = 0.02
     d_head: int = 64
-    d_mlp: int = 3072
     n_heads: int = 4
-    dff=1024
-    device = t.device("cuda" if t.cuda.is_available() else "cpu")
+    dff = 1024
 
 class SpeechTransformer(nn.Module):
     """Speech Transformer model that converts speech spectrograms to text.
@@ -53,6 +52,14 @@ class SpeechTransformer(nn.Module):
         self.batch_norm_two = nn.BatchNorm2d(self.cfg.n_out_channels) # TODO: Look at ARENA implementation
 
         self.linear = nn.Linear(self.cfg.n_freq_bins//4 * self.cfg.n_out_channels, self.cfg.d_model)
+
+        self.positional_encoder = PositionalEncoder(self.cfg)
+
+        self.encoder_blocks = nn.Sequential(
+            *[EncoderBlock() for _ in range(self.cfg.n_encoder_layers)],
+            nn.LayerNorm(self.cfg.d_model)
+        )
+
 
     def forward(self, x: Float[t.Tensor, "batch time_steps freq_bins"]) -> Float[t.Tensor, "batch reduced_time d_model"]: # type: ignore
         """Transform input spectrogram through the Speech Transformer.
@@ -112,7 +119,7 @@ class SpeechTransformer(nn.Module):
 
         # Input Encoding (Positional Encoding) - add positional information to embedded sequence
 
-        x = self.positional_encoding(x)
+        x = self.positional_encoder(x)
         # Attention Blocks - process the sequence
             # Layer Norm
             # Multi-Head Attention
@@ -121,9 +128,18 @@ class SpeechTransformer(nn.Module):
 
         # Layer Norm
 
+        x = self.encoder_blocks(x)
+        assert x.shape[1] == input_time_steps // 4
+        assert x.shape[2] == self.cfg.d_model
+
         return x
-    
-    def positional_encoding(self, x: Float[t.Tensor, "batch reduced_time_steps d_model"]) -> Float[t.Tensor, "batch posn d_model"]: #type: ignore
+
+class PositionalEncoder(nn.Module):
+    def __init__(self, cfg):
+        super().__init__()
+        self.cfg = cfg
+
+    def forward(self, x: Float[t.Tensor, "batch reduced_time_steps d_model"]) -> Float[t.Tensor, "batch posn d_model"]: #type: ignore
 
         # get sequence length from input x
         seq_length = x.shape[1]
@@ -149,13 +165,87 @@ class SpeechTransformer(nn.Module):
         assert x.shape[-1] == self.cfg.d_model
 
         return x + pos_encoding
-        
+
+class Reshape(nn.Module):
+    def __init__(self, pattern):
+        super().__init__()
+        self.pattern = pattern
+
+    def forward(self, x):
+        return einops.rearrange(x, self.pattern)
+
+class Repeat(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x):
+        return einops.repeat(x, "b ts fb -> b c ts fb", c=1)
+
+class FFN(nn.Module):
+    def __init__(self, dff, d_model):
+        super().__init__()
+        self.dff = dff
+        self.d_model = d_model
+
+        self.linear_one = nn.Linear(self.d_model, self.dff)
+        self.relu = nn.ReLU()
+        self.linear_two = nn.Linear(self.dff, self.d_model)
+
+    def forward(self, x: Float[t.Tensor, "batch posn d_model"]) -> Float[t.Tensor, "batch posn d_model"]: # type: ignore
+        x = self.linear_one(x)
+        x = self.relu(x)
+        x = self.linear_two(x)
+
+        assert x.shape[-1] == self.d_model
+
+        return x
+
+class TransformerBlock(nn.Module):
+    @staticmethod
+    def add_to_residual_stream(x, layer_norm, sub_block):
+        normalized = layer_norm(x)
+        transformed = sub_block(normalized)
+        output = x + transformed
+        return output
+
+class EncoderBlock(TransformerBlock):
+    """Encoder block for the Speech Transformer.
+    
+    Each encoder block contains:
+    1. Layer normalization + Multi-head attention (without masking)
+    2. Layer normalization + Feed-forward network
+    3. Residual connections around each sub-block
+    
+    Input/Output shape: [batch, posn, d_model]
+    """
+    def __init__(self):
+        super().__init__()
+        self.cfg = Config()
+        self.layer_norm_one = nn.LayerNorm(self.cfg.d_model)
+        self.layer_norm_two = nn.LayerNorm(self.cfg.d_model)
+        self.attention = Attention(self.cfg, apply_mask=False)
+        self.feed_forward_network = FFN(self.cfg.dff, self.cfg.d_model)
+
+    def forward(self, x: Float[t.Tensor, "batch posn d_model"]) -> Float[t.Tensor, "batch posn d_model"]: # type: ignore
+        x = self.add_to_residual_stream(x, self.layer_norm_one, self.attention)
+        x = self.add_to_residual_stream(x, self.layer_norm_two, self.feed_forward_network)
+        return x
+
+
+class DecoderBlock(TransformerBlock):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self):
+        pass
 
 class Attention(nn.Module):
 
-    def __init__(self, cfg: Config):
+    def __init__(self, cfg: Config, apply_mask: bool = True):
         super().__init__()
         self.cfg = cfg
+
+        self.apply_mask = apply_mask
 
         # weights
         self.W_Q = nn.Parameter(t.empty((cfg.n_heads, cfg.d_model, cfg.d_head)))
@@ -204,11 +294,12 @@ class Attention(nn.Module):
                                     "batch seq_q head_index d_head, batch seq_k head_index d_head -> batch head_index seq_q seq_k"
                                     )
         
-        scaled_attn_scores = attn_scores / (self.cfg.d_head ** 0.5)
+        attn_scores = attn_scores / (self.cfg.d_head ** 0.5) # scale
 
-        masked_attn_scores = self.apply_causal_mask(scaled_attn_scores)
+        if self.apply_mask:
+            attn_scores = self.apply_causal_mask(attn_scores)
 
-        A = t.softmax(masked_attn_scores, dim=-1) # attention is all we need!
+        A = t.softmax(attn_scores, dim=-1) # attention is all we need!
 
         z = einops.einsum(A, V, "b n sq sk, b sk n h -> b sq n h")
 
