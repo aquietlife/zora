@@ -3,6 +3,7 @@ from jaxtyping import Float
 import torch as t
 import torch.nn as nn
 import einops
+import string
 
 # config class to hold hyperparamters
 @dataclass
@@ -23,6 +24,17 @@ class Config:
     d_head: int = 64
     n_heads: int = 4
     dff = 1024
+
+    # character embeddings
+    vocab_size: int = 78
+    pad_idx: int = 0
+    sos_idx: int = 1 # start of sequence
+    eos_idx: int = 2 # end of sequence
+    unk_idx: int = 3 # unknown token
+    include_special_chars: bool =  False
+    include_sos_eos_tokens: bool = True
+    unknown_char: str = "unknown_char"
+    max_seq_length: int = 100
 
 class SpeechTransformer(nn.Module):
     """Speech Transformer model that converts speech spectrograms to text.
@@ -317,4 +329,177 @@ class Attention(nn.Module):
         mask = t.triu(t.ones_like(attn_scores), diagonal = 1).to(self.cfg.device)
         return attn_scores.masked_fill_(mask != 0, self.IGNORE)
 
+class CharacterVocabulary:
+    """Handles character-level tokenization for the Speech Transformer.
+    
+    Maps between characters and integer indices, handles special tokens (PAD, SOS, EOS, UNK),
+    and manages sequence padding/truncation.
+    
+    Attributes:
+        cfg: Configuration object containing vocabulary parameters
+        char_to_idx: Dictionary mapping characters to integer indices
+        idx_to_char: Dictionary mapping integer indices to characters
+        special_tokens: List of special token indices [PAD, SOS, EOS, UNK]
+    """
+    
+    def __init__(self, cfg):
+        self.cfg = cfg
+        
+        if self.cfg.max_seq_length <= 0 or self.cfg.max_seq_length > 1000:
+            raise ValueError("max_seq_length is either too small or large!")
 
+        self.special_tokens = [
+            self.cfg.pad_idx, 
+            self.cfg.sos_idx, 
+            self.cfg.eos_idx, 
+            self.cfg.unk_idx
+            ]
+
+        self.char_to_idx = dict() # maps chars to integer index
+        self.idx_to_char = dict() # maps interger index to chars
+
+        # initialize char to idx dict
+        # with special tokens first
+        self.char_to_idx['PAD'] = self.cfg.pad_idx
+        self.char_to_idx['SOS'] = self.cfg.sos_idx
+        self.char_to_idx['EOS'] = self.cfg.eos_idx
+        self.char_to_idx['UNK'] = self.cfg.unk_idx
+
+        all_chars = list(string.ascii_lowercase + string.digits + string.punctuation + string.whitespace)
+
+        for i, c in enumerate(all_chars):
+            self.char_to_idx[c] = i + 4 # offset by 4 to account for special characters we manually added first
+
+        # initialize idx to char dict (essentially a reverse mapping of char_to_idx)
+        self.idx_to_char = { value: key for key, value in self.char_to_idx.items() }
+        
+        assert len(list(self.char_to_idx.keys())) == self.cfg.vocab_size
+
+    def encode(self, s: str) -> list:
+        """Converts a string to a list of token indices.
+        
+        Handles unknown characters, adds SOS/EOS tokens if configured,
+        and pads/truncates to max_seq_length.
+        
+        Args:
+            s: Input string to encode
+            
+        Returns:
+            List of indices with optional SOS/EOS tokens and padding
+            
+        Raises:
+            ValueError: If input is None or empty string
+        """
+        
+        if not s:
+            raise ValueError("encode expected a string but got None or an empty string") 
+
+        indices = []
+
+        for c in s:
+            # find index in char_to_idx dict
+            if c not in self.char_to_idx:
+                idx = self.cfg.unk_idx
+            else:
+                idx = self.char_to_idx[c]
+            indices.append(idx)
+        
+        # add sos and eos tokens
+        if self.cfg.include_sos_eos_tokens:
+            indices = [self.cfg.sos_idx] + indices + [self.cfg.eos_idx]
+
+        # add padding if necessary
+
+        indices = self.pad_sequence(indices)
+
+        return indices
+
+    def decode(self, indices: list) -> str:
+        """Converts a list of token indices back to a string.
+        
+        Handles special tokens based on configuration, converts unknown
+        tokens to unknown_char.
+        
+        Args:
+            indices: List of token indices to decode
+            
+        Returns:
+            Decoded string with special tokens optionally removed
+            
+        Raises:
+            ValueError: If indices is None or empty list
+        """
+        
+        if not indices:
+            raise ValueError("decode expect a list but got None or an empty list")
+        
+        # convert indices to string
+        chars = []
+
+        for i in indices:
+            if not self.cfg.include_special_chars:
+                if i in self.special_tokens:
+                    continue
+            char = self.idx_to_char[i]
+            if i == self.cfg.unk_idx:
+                char = self.cfg.unknown_char
+            chars.append(char)
+
+        return "".join(chars)
+
+    def pad_sequence(self, indices: list) -> list:
+        """Pads or truncates sequence to configured max_seq_length.
+        
+        Args:
+            indices: List of token indices
+            
+        Returns:
+            Padded/truncated list of length max_seq_length
+        """
+        
+        if len(indices) < self.cfg.max_seq_length:
+
+            # figure out how much we are off by
+            diff = self.cfg.max_seq_length - len(indices)
+
+            # pad to the right
+            indices = indices + [self.cfg.pad_idx for _ in range(diff)]
+
+        elif len(indices) > self.cfg.max_seq_length:
+            indices = indices[:self.cfg.max_seq_length]
+        return indices
+
+    def add_sos_eos(self, indices: list) -> list:
+        """Adds start and end of sequence tokens to list of indices.
+        
+        Args:
+            indices: List of token indices
+            
+        Returns:
+            List with SOS token prepended and EOS token appended
+        """
+        
+        return [self.cfg.sos_idx] + indices + [self.cfg.eos_idx]
+
+    def is_special_token(self, idx: int) -> bool:
+        """Checks if an index corresponds to a special token.
+        
+        Args:
+            idx: Token index to check
+            
+        Returns:
+            True if idx is a special token (PAD, SOS, EOS, UNK)
+        """
+        
+        return True if idx in self.special_tokens else False
+
+    @property
+    def vocab_size(self) -> int:
+        """Total size of vocabulary including special tokens."""
+        
+        return len(self.char_to_idx)
+    
+    def get_vocab(self) -> list:
+        """Returns list of all characters in vocabulary."""
+        
+        return list(self.char_to_idx.keys())

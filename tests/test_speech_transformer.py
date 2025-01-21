@@ -1,6 +1,6 @@
 import torch as t
-from zoraspeech.architectures.speech_transformer.speech_transformer import SpeechTransformer, Attention, Config
-
+import pytest
+from zoraspeech.architectures.speech_transformer.speech_transformer import SpeechTransformer, Attention, Config, CharacterVocabulary
 
 def test_speech_transformer_forward_pass():
     # TODO Modify this to match actual tensor size of (batch_size, time_steps, frequency_bins)
@@ -44,3 +44,46 @@ def test_attention_output_shape():
     attention = Attention(cfg).to(cfg.device)
 
     assert attention.forward(input).shape == (batch_size, seq_len, d_model)
+
+def test_character_vocabulary_encode_decode():
+    cfg = Config()
+
+    cv = CharacterVocabulary(cfg)
+
+    str = "speech transformer"
+
+    encoded_string = cv.encode(str)
+
+    print(encoded_string)
+
+    decoded_string = cv.decode(encoded_string)
+
+    print(decoded_string)
+
+    assert str == decoded_string
+
+    assert len(encoded_string) == cfg.max_seq_length
+
+    if cfg.include_sos_eos_tokens:
+        assert encoded_string[0] == cfg.sos_idx
+        assert encoded_string[1:].index(cfg.eos_idx) > 0 # EOS should be present and somewhere after SOS
+
+    test_str_with_unknown_chars = "a quiet life 静かな生活"
+    encoded_unknown_chars = cv.encode(test_str_with_unknown_chars)
+    decoded_string = cv.decode(encoded_unknown_chars)
+    assert decoded_string == "a quiet life "
+
+    # test empty string
+    with pytest.raises(ValueError):
+        cv.encode("")
+
+    # test padding
+    short_str = "hi"
+    encoded = cv.encode(short_str)
+    assert len(encoded) == cfg.max_seq_length
+    assert encoded[-1] == 0
+
+    # test max length truncation
+    long_str = "a" * (cfg.max_seq_length + 10)
+    encoded = cv.encode(long_str)
+    assert len(encoded) == cfg.max_seq_length
