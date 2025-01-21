@@ -5,7 +5,7 @@ import torch.nn as nn
 import einops
 
 # config class to hold hyperparamters
-# TODO annotate what each of these hyperparameters meanj
+# TODO annotate what each of these hyperparameters means
 @dataclass
 class Config:
     debug: bool = True
@@ -44,22 +44,32 @@ class SpeechTransformer(nn.Module):
     def __init__(self):
         super().__init__()
         self.cfg = Config()
-        
-        self.conv2d_layer_one = nn.Conv2d(1, self.cfg.n_out_channels, self.cfg.conv2d_kernel_size, self.cfg.conv2d_stride, self.cfg.conv2d_padding)
-        self.conv2d_layer_two = nn.Conv2d(self.cfg.n_out_channels, self.cfg.n_out_channels, self.cfg.conv2d_kernel_size, self.cfg.conv2d_stride, self.cfg.conv2d_padding)
-        self.relu = nn.ReLU()
-        self.batch_norm_one = nn.BatchNorm2d(self.cfg.n_out_channels) # TODO: Look at ARENA implementation
-        self.batch_norm_two = nn.BatchNorm2d(self.cfg.n_out_channels) # TODO: Look at ARENA implementation
 
-        self.linear = nn.Linear(self.cfg.n_freq_bins//4 * self.cfg.n_out_channels, self.cfg.d_model)
-
+        self.repeat = Repeat()
+        self.conv2d_block_one = Conv2DBlock(self.cfg, self.cfg.n_channels, self.cfg.n_out_channels, self.cfg.conv2d_kernel_size, self.cfg.conv2d_stride, self.cfg.conv2d_padding)
+        self.conv2d_block_two = Conv2DBlock(self.cfg, self.cfg.n_out_channels, self.cfg.n_out_channels, self.cfg.conv2d_kernel_size, self.cfg.conv2d_stride, self.cfg.conv2d_padding)
+        self.reshape = Reshape(self.cfg, "b c ts fb -> b ts (c fb)")
+        self.linear = Linear(self.cfg)
         self.positional_encoder = PositionalEncoder(self.cfg)
-
         self.encoder_blocks = nn.Sequential(
-            *[EncoderBlock() for _ in range(self.cfg.n_encoder_layers)],
-            nn.LayerNorm(self.cfg.d_model)
+            *[EncoderBlock() for _ in range(self.cfg.n_encoder_layers)]
+        )
+        self.layer_norm = LayerNorm(self.cfg)
+
+        # encoder
+        self.encoder = nn.Sequential(
+            self.repeat,
+            self.conv2d_block_one,
+            self.conv2d_block_two,
+            self.reshape,
+            self.linear,
+            self.positional_encoder,
+            self.encoder_blocks,
+            self.layer_norm
         )
 
+        # decoder
+        # TBD NEXT
 
     def forward(self, x: Float[t.Tensor, "batch time_steps freq_bins"]) -> Float[t.Tensor, "batch reduced_time d_model"]: # type: ignore
         """Transform input spectrogram through the Speech Transformer.
@@ -81,58 +91,45 @@ class SpeechTransformer(nn.Module):
             Encoded sequence of shape [batch, reduced_time, d_model]
             where reduced_time = time_steps/4 due to the strided convolutions
         """
-        input_time_steps = x.shape[1]
-        # Add a channel dimension to our input
-        x = einops.repeat(x, "b ts fb -> b c ts fb", c=1)
-        assert x.shape[1] == 1
-        assert x.shape[2] == input_time_steps
-        assert x.shape[3] == self.cfg.n_freq_bins
+        return self.encoder(x)
 
-        # Conv2d + ReLu + BatchNorm- initial feature extraction
-        x = self.conv2d_layer_one(x)
+class Conv2DBlock(nn.Module):
+    def __init__(self, cfg, in_channels, out_channels, kernel_size, stride, padding):
+        super().__init__()
+        self.cfg = cfg
+        self.conv2d = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding)
+        self.relu = nn.ReLU()
+        self.batch_norm = nn.BatchNorm2d(out_channels)
+
+    def forward(self, x):
+        x = self.conv2d(x)
         x = self.relu(x)
-        x = self.batch_norm_one(x)
+        x = self.batch_norm(x)
         assert x.shape[1] == self.cfg.n_out_channels
-        assert x.shape[2] == input_time_steps // 2
-        assert x.shape[3] == self.cfg.n_freq_bins // 2
-
-        # Conv2d + ReLu + BatchNorm - more feature extraction
-        x = self.conv2d_layer_two(x)
-        x = self.relu(x)
-        x = self.batch_norm_two(x)
-        assert x.shape[1] == self.cfg.n_out_channels
-        assert x.shape[2] == input_time_steps // 4
-        assert x.shape[3] == self.cfg.n_freq_bins // 4
-
-        # Reshape        
-        x = einops.rearrange(x, "b c ts fb -> b ts (c fb)")
-        assert x.shape[1] == input_time_steps // 4
-        assert x.shape[2] == self.cfg.n_out_channels * (self.cfg.n_freq_bins // 4)
-
-        # Linear - project to d_model dimension (this is where embedding happens!)
-        x = self.linear(x)
-        assert x.shape[1] == input_time_steps // 4
-        assert x.shape[2] == self.cfg.d_model
-
-        # Reshape
-        #x = einops.rearrange(x, "b ts d_model-> b (ts fb) feature_dim", feature_dim=self.cfg.d_model) # b ts fb
-
-        # Input Encoding (Positional Encoding) - add positional information to embedded sequence
-
-        x = self.positional_encoder(x)
-        # Attention Blocks - process the sequence
-            # Layer Norm
-            # Multi-Head Attention
-            # Layer Norm
-            # MLP
-
-        # Layer Norm
-
-        x = self.encoder_blocks(x)
-        assert x.shape[1] == input_time_steps // 4
-        assert x.shape[2] == self.cfg.d_model
 
         return x
+    
+class Linear(nn.Module):
+    def __init__(self, cfg):
+        super().__init__()
+        self.cfg = cfg
+        self.linear = nn.Linear(cfg.n_freq_bins//4 * cfg.n_out_channels, cfg.d_model)
+
+    def forward(self, x):
+        x = self.linear(x)
+        assert x.shape[2] == self.cfg.d_model
+        return x
+
+class LayerNorm(nn.Module):
+    def __init__(self, cfg):
+        super().__init__()
+        self.cfg = cfg
+        self.layer_norm = nn.LayerNorm(cfg.d_model)
+
+    def forward(self, x):
+        x = self.layer_norm(x)
+        return x
+
 
 class PositionalEncoder(nn.Module):
     def __init__(self, cfg):
@@ -167,19 +164,26 @@ class PositionalEncoder(nn.Module):
         return x + pos_encoding
 
 class Reshape(nn.Module):
-    def __init__(self, pattern):
+    def __init__(self, cfg, pattern):
         super().__init__()
         self.pattern = pattern
+        self.cfg = cfg
 
     def forward(self, x):
-        return einops.rearrange(x, self.pattern)
+        x = einops.rearrange(x, self.pattern)
+        assert x.shape[2] == self.cfg.n_out_channels * (self.cfg.n_freq_bins // 4)
+        return x
 
 class Repeat(nn.Module):
     def __init__(self):
         super().__init__()
 
     def forward(self, x):
-        return einops.repeat(x, "b ts fb -> b c ts fb", c=1)
+        x = einops.repeat(x, "b ts fb -> b c ts fb", c=1)
+        assert x.shape[1] == 1
+        #assert x.shape[2] == input_time_steps
+        #assert x.shape[3] == self.cfg.n_freq_bins
+        return x
 
 class FFN(nn.Module):
     def __init__(self, dff, d_model):
