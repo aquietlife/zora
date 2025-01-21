@@ -5,13 +5,12 @@ import torch.nn as nn
 import einops
 
 # config class to hold hyperparamters
-# TODO annotate what each of these hyperparameters means
 @dataclass
 class Config:
     debug: bool = True
     device = t.device("cuda" if t.cuda.is_available() else "cpu")
-    n_freq_bins = 80
-    n_channels = 1
+    n_freq_bins = 80 # number of frequency bins from the spectrograms, defined in paper
+    n_channels = 1 # number of extra channels for when we pass through conv2d blocks
     n_out_channels = 64 # from the paper
     conv2d_kernel_size = 3
     conv2d_stride = 2
@@ -36,7 +35,10 @@ class SpeechTransformer(nn.Module):
     2. Linear projection to d_model dimension
     3. Positional encoding
     4. Transformer encoder blocks
+    5. Layer norm
     
+    Currently encoder-only!
+
     Input shape: [batch_size, time_steps, freq_bins]
     Output shape: [batch_size, reduced_time_steps, d_model]
     """
@@ -45,7 +47,7 @@ class SpeechTransformer(nn.Module):
         super().__init__()
         self.cfg = Config()
 
-        self.repeat = Repeat()
+        self.repeat = Repeat(self.cfg)
         self.conv2d_block_one = Conv2DBlock(self.cfg, self.cfg.n_channels, self.cfg.n_out_channels, self.cfg.conv2d_kernel_size, self.cfg.conv2d_stride, self.cfg.conv2d_padding)
         self.conv2d_block_two = Conv2DBlock(self.cfg, self.cfg.n_out_channels, self.cfg.n_out_channels, self.cfg.conv2d_kernel_size, self.cfg.conv2d_stride, self.cfg.conv2d_padding)
         self.reshape = Reshape(self.cfg, "b c ts fb -> b ts (c fb)")
@@ -72,31 +74,13 @@ class SpeechTransformer(nn.Module):
         # TBD NEXT
 
     def forward(self, x: Float[t.Tensor, "batch time_steps freq_bins"]) -> Float[t.Tensor, "batch reduced_time d_model"]: # type: ignore
-        """Transform input spectrogram through the Speech Transformer.
-        
-        The forward pass consists of:
-        1. Reshape input to [batch, channels=1, time_steps, freq_bins]
-        2. Two Conv2d + ReLU layers that each reduce dimensions by 2x
-           - After Conv1: [batch, channels, time_steps/2, freq_bins/2] 
-           - After Conv2: [batch, channels, time_steps/4, freq_bins/4]
-        3. Linear projection to d_model dimension
-        4. Add positional encoding
-        5. Process through transformer encoder blocks
-
-        Args:
-            x: Input spectrogram of shape [batch, time_steps, freq_bins]
-               where freq_bins=80 (from the paper's filterbank features)
-        
-        Returns:
-            Encoded sequence of shape [batch, reduced_time, d_model]
-            where reduced_time = time_steps/4 due to the strided convolutions
-        """
         return self.encoder(x)
 
 class Conv2DBlock(nn.Module):
     def __init__(self, cfg, in_channels, out_channels, kernel_size, stride, padding):
         super().__init__()
         self.cfg = cfg
+        self.out_channels = out_channels
         self.conv2d = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding)
         self.relu = nn.ReLU()
         self.batch_norm = nn.BatchNorm2d(out_channels)
@@ -105,11 +89,13 @@ class Conv2DBlock(nn.Module):
         x = self.conv2d(x)
         x = self.relu(x)
         x = self.batch_norm(x)
-        assert x.shape[1] == self.cfg.n_out_channels
+        assert x.shape[1] == self.out_channels
 
         return x
     
 class Linear(nn.Module):
+    """Wraps PyTorch's Linear so we can add assertions
+    """
     def __init__(self, cfg):
         super().__init__()
         self.cfg = cfg
@@ -121,6 +107,8 @@ class Linear(nn.Module):
         return x
 
 class LayerNorm(nn.Module):
+    """Wraps PyTorch's LayerNorm so we can add assertions
+    """
     def __init__(self, cfg):
         super().__init__()
         self.cfg = cfg
@@ -128,6 +116,7 @@ class LayerNorm(nn.Module):
 
     def forward(self, x):
         x = self.layer_norm(x)
+        assert x.shape[2] == self.cfg.d_model
         return x
 
 
@@ -164,6 +153,11 @@ class PositionalEncoder(nn.Module):
         return x + pos_encoding
 
 class Reshape(nn.Module):
+    """Reshape can take in any einops rearrange pattern and return a rearranged output tensor
+
+    e.g. b c ts fb -> b ts (c fb) - This takes in a tensor of (b c ts fb) and reduces it by one dimension by multiplying two together
+
+    """
     def __init__(self, cfg, pattern):
         super().__init__()
         self.pattern = pattern
@@ -175,38 +169,45 @@ class Reshape(nn.Module):
         return x
 
 class Repeat(nn.Module):
-    def __init__(self):
+    """Repeat is used to add a new dimension to a tensor, similar to t.unsqueeze()
+    """
+    def __init__(self, cfg):
         super().__init__()
+        self.cfg = cfg
 
     def forward(self, x):
-        x = einops.repeat(x, "b ts fb -> b c ts fb", c=1)
+        x = einops.repeat(x, "b ts fb -> b c ts fb", c=self.cfg.n_channels)
         assert x.shape[1] == 1
-        #assert x.shape[2] == input_time_steps
-        #assert x.shape[3] == self.cfg.n_freq_bins
+        assert x.shape[3] == self.cfg.n_freq_bins
         return x
 
 class FFN(nn.Module):
-    def __init__(self, dff, d_model):
+    def __init__(self, cfg):
         super().__init__()
-        self.dff = dff
-        self.d_model = d_model
+        self.cfg = cfg
 
-        self.linear_one = nn.Linear(self.d_model, self.dff)
+        self.linear_one = nn.Linear(self.cfg.d_model, self.cfg.dff)
         self.relu = nn.ReLU()
-        self.linear_two = nn.Linear(self.dff, self.d_model)
+        self.linear_two = nn.Linear(self.cfg.dff, self.cfg.d_model)
 
     def forward(self, x: Float[t.Tensor, "batch posn d_model"]) -> Float[t.Tensor, "batch posn d_model"]: # type: ignore
         x = self.linear_one(x)
         x = self.relu(x)
         x = self.linear_two(x)
 
-        assert x.shape[-1] == self.d_model
+        assert x.shape[-1] == self.cfg.d_model
 
         return x
 
 class TransformerBlock(nn.Module):
+    """This base class allows both EncoderBlock and DecoderBlock to use add_to_residual_stream method
+
+    This method performs the functionality of the transformer block (where we have attention and FFN),
+    making sure to add the result to a residual stream 
+
+    """
     @staticmethod
-    def add_to_residual_stream(x, layer_norm, sub_block):
+    def add_to_residual_stream(x: Float[t.Tensor, "batch posn d_model"], layer_norm, sub_block) -> Float[t.Tensor, "batch posn d_model"]: # type: ignore
         normalized = layer_norm(x)
         transformed = sub_block(normalized)
         output = x + transformed
@@ -228,7 +229,7 @@ class EncoderBlock(TransformerBlock):
         self.layer_norm_one = nn.LayerNorm(self.cfg.d_model)
         self.layer_norm_two = nn.LayerNorm(self.cfg.d_model)
         self.attention = Attention(self.cfg, apply_mask=False)
-        self.feed_forward_network = FFN(self.cfg.dff, self.cfg.d_model)
+        self.feed_forward_network = FFN(self.cfg)
 
     def forward(self, x: Float[t.Tensor, "batch posn d_model"]) -> Float[t.Tensor, "batch posn d_model"]: # type: ignore
         x = self.add_to_residual_stream(x, self.layer_norm_one, self.attention)
