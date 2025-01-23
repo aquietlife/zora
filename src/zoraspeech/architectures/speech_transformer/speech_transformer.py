@@ -59,31 +59,34 @@ class SpeechTransformer(nn.Module):
         super().__init__()
         self.cfg = Config()
 
+        # encoder components
         self.repeat = Repeat(self.cfg)
         self.conv2d_block_one = Conv2DBlock(self.cfg, self.cfg.n_channels, self.cfg.n_out_channels, self.cfg.conv2d_kernel_size, self.cfg.conv2d_stride, self.cfg.conv2d_padding)
         self.conv2d_block_two = Conv2DBlock(self.cfg, self.cfg.n_out_channels, self.cfg.n_out_channels, self.cfg.conv2d_kernel_size, self.cfg.conv2d_stride, self.cfg.conv2d_padding)
         self.reshape = Reshape(self.cfg, "b c ts fb -> b ts (c fb)")
         self.linear = Linear(self.cfg)
-        self.positional_encoder = PositionalEncoder(self.cfg)
+        self.encoder_positional_encoder = PositionalEncoder(self.cfg)
         self.encoder_blocks = nn.Sequential(
             *[EncoderBlock() for _ in range(self.cfg.n_encoder_layers)]
         )
         self.layer_norm = LayerNorm(self.cfg)
 
-        # encoder
+        # encoder sequential
         self.encoder = nn.Sequential(
             self.repeat,
             self.conv2d_block_one,
             self.conv2d_block_two,
             self.reshape,
             self.linear,
-            self.positional_encoder,
+            self.encoder_positional_encoder,
             self.encoder_blocks,
             self.layer_norm
         )
 
-        # decoder
-        # TBD NEXT
+        # decoder components
+        self.character_embedding = CharacterEmbedding(self.cfg)
+        self.decoder_positional_encoder = PositionalEncoder(self.cfg)
+
 
     def forward(self, x: Float[t.Tensor, "batch time_steps freq_bins"]) -> Float[t.Tensor, "batch reduced_time d_model"]: # type: ignore
         return self.encoder(x)
@@ -503,3 +506,33 @@ class CharacterVocabulary:
         """Returns list of all characters in vocabulary."""
         
         return list(self.char_to_idx.keys())
+
+class CharacterEmbedding(nn.Module):
+    """Character embedding layer for the Speech Transformer decoder.
+    
+    Converts token indices from CharacterVocabulary into dense vectors of dimension d_model.
+    This is the first component in the decoder sequence, followed by positional encoding.
+    Padding tokens are passed through and handled later by attention masks.
+    
+    Input shape: [batch_size, seq_length] - Tensor of token indices from CharacterVocabulary
+    Output shape: [batch_size, seq_length, d_model] - Dense embedding vectors
+    """
+
+    def __init__(self, cfg):
+        super().__init__()
+        self.cfg = cfg
+        self.character_embedding = nn.Embedding(self.cfg.vocab_size, self.cfg.d_model)
+        nn.init.normal_(self.character_embedding.weight, std=cfg.init_range)
+    
+    def forward(self, x: Float[t.Tensor, "batch seq_length"]) -> Float[t.Tensor, "batch seq_length d_model"]: # type: ignore
+
+        assert x.shape[1] <= self.cfg.max_seq_length
+        assert t.all( x < self.cfg.vocab_size) 
+        assert len(x.shape) == 2
+
+        x = self.character_embedding(x)
+        
+        assert len(x.shape) == 3
+        assert x.shape[2] == self.cfg.d_model
+
+        return x

@@ -1,6 +1,12 @@
 import torch as t
 import pytest
-from zoraspeech.architectures.speech_transformer.speech_transformer import SpeechTransformer, Attention, Config, CharacterVocabulary
+from zoraspeech.architectures.speech_transformer.speech_transformer import (
+    SpeechTransformer, 
+    Attention, 
+    Config, 
+    CharacterVocabulary,
+    CharacterEmbedding
+    )
 
 def test_speech_transformer_forward_pass():
     # TODO Modify this to match actual tensor size of (batch_size, time_steps, frequency_bins)
@@ -54,11 +60,11 @@ def test_character_vocabulary_encode_decode():
 
     encoded_string = cv.encode(str)
 
-    print(encoded_string)
+    #print(encoded_string)
 
     decoded_string = cv.decode(encoded_string)
 
-    print(decoded_string)
+    #print(decoded_string)
 
     assert str == decoded_string
 
@@ -87,3 +93,16 @@ def test_character_vocabulary_encode_decode():
     long_str = "a" * (cfg.max_seq_length + 10)
     encoded = cv.encode(long_str)
     assert len(encoded) == cfg.max_seq_length
+
+def test_character_embedding():
+
+    cfg = Config()
+    batch_size = 2
+    seq_len = 4
+    d_model = cfg.d_model
+
+    input = t.ones(batch_size, seq_len, dtype=t.long).to(cfg.device)
+
+    ce = CharacterEmbedding(cfg).to(cfg.device)
+
+    assert ce.forward(input).shape == (batch_size, seq_len, d_model)
