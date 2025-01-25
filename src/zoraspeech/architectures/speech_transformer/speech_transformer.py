@@ -87,8 +87,10 @@ class SpeechTransformer(nn.Module):
         # decoder as a custom module
         self.decoder = Decoder(self.cfg)
 
-    def forward(self, x: Float[t.Tensor, "batch time_steps freq_bins"]) -> Float[t.Tensor, "batch reduced_time d_model"]: # type: ignore
-        return self.encoder(x)
+    def forward(self, speech_input, text_input):
+        encoder_output = self.encoder(speech_input)
+        decoder_output = self.decoder(text_input, key_input=encoder_output, value_input=encoder_output)
+        return decoder_output
 
 class Conv2DBlock(nn.Module):
     def __init__(self, cfg, in_channels, out_channels, kernel_size, stride, padding):
@@ -221,9 +223,13 @@ class TransformerBlock(nn.Module):
 
     """
     @staticmethod
-    def add_to_residual_stream(x: Float[t.Tensor, "batch posn d_model"], layer_norm, sub_block) -> Float[t.Tensor, "batch posn d_model"]: # type: ignore
+    def add_to_residual_stream(
+        x: Float[t.Tensor, "batch posn d_model"], 
+        layer_norm, 
+        sub_block_fn) -> Float[t.Tensor, "batch posn d_model"]: # type: ignore
+        
         normalized = layer_norm(x)
-        transformed = sub_block(normalized)
+        transformed = sub_block_fn(normalized)
         output = x + transformed
         return output
 
@@ -283,20 +289,22 @@ class Attention(nn.Module):
     
     def forward(
             self, 
-            normalized_resid_pre: Float[t.Tensor, "batch posn d_model"] # type: ignore
+            query_input: Float[t.Tensor, "batch posn d_model"], # type: ignore
+            key_input: Optional[Float[t.Tensor, "batch posn d_model"]] = None, # type: ignore
+            value_input: Optional[Float[t.Tensor, "batch, posn d_model"]] = None
             ) -> Float[t.Tensor, "batch posn d_model"]: # type: ignore
         # linear map
 
 
-        Q = einops.einsum(normalized_resid_pre,
+        Q = einops.einsum(query_input,
                           self.W_Q,
                           "b s e, n e h -> b s n h") + self.b_Q
         
-        K = einops.einsum(normalized_resid_pre,
+        K = einops.einsum(query_input if key_input is None else key_input,
                           self.W_K,
                           "b s e, n e h -> b s n h") + self.b_K
         
-        V = einops.einsum(normalized_resid_pre,
+        V = einops.einsum(query_input if value_input is None else value_input,
                           self.W_V,
                           "b s e, n e h -> b s n h") + self.b_V
         
@@ -331,21 +339,40 @@ class Decoder(nn.Module):
         self.cfg = cfg
         self.character_embedding = CharacterEmbedding(self.cfg)
         self.decoder_positional_encoder = PositionalEncoder(self.cfg)
+        self.decoder_blocks = nn.ModuleList(
+            [DecoderBlock(self.cfg) for _ in range(self.cfg.n_decoder_layers)]
+        )
+        self.layer_norm = LayerNorm(self.cfg)
+        self.linear = nn.Linear(self.cfg.d_model, self.cfg.vocab_size)
+        self.soft_max = nn.Softmax(dim=-1)  # Apply softmax along the vocabulary dimension
 
-    def forward(self, x):
 
+    def forward(self, x,
+            key_input: Optional[Float[t.Tensor, "batch posn d_model"]] = None, # type: ignore
+            value_input: Optional[Float[t.Tensor, "batch, posn d_model"]] = None # type: ignore
+    ):
         # take in our input tokens, encode, and generate character embeddings
         embeddings = self.character_embedding(x)
 
         encoded_sequence = self.decoder_positional_encoder(embeddings)
 
-        assert len(encoded_sequence) == 3
-        assert len(encoded_sequence.shape[1]) <= self.cfg.max_seq_length
-        assert len(encoded_sequence.shape[2]) == self.cfg.d_model
+        assert encoded_sequence.ndim == 3
+        assert encoded_sequence.shape[1] <= self.cfg.max_seq_length
+        assert encoded_sequence.shape[2] == self.cfg.d_model
         
         # pass positional encoding into decoder blocks
 
+        x = encoded_sequence
+        for block in self.decoder_blocks:
+            x = block(x, key_input, value_input)
 
+        x = self.layer_norm(x)
+        
+        x = self.linear(x)
+        
+        probabilities = self.soft_max(x)
+
+        return probabilities
 
 
 
@@ -566,9 +593,15 @@ class DecoderBlock(TransformerBlock):
         self.layer_norm_three = nn.LayerNorm(self.cfg.d_model)
         self.feed_forward_network = FFN(self.cfg)
 
-    def forward(self, x: Float[t.Tensor, "batch posn d_model"]) -> Float[t.Tensor, "batch posn d_model"]: # type: ignore
+    def forward(
+            self, 
+            x: Float[t.Tensor, "batch posn d_model"],
+            key_input: Optional[Float[t.Tensor, "batch posn d_model"]] = None, # type: ignore
+            value_input: Optional[Float[t.Tensor, "batch, posn d_model"]] = None # type: ignore
+            ) -> Float[t.Tensor, "batch posn d_model"]: # type: ignore
+
          x = self.add_to_residual_stream(x, self.layer_norm_one, self.attention_masked)
-         x = self.add_to_residual_stream(x, self.layer_norm_two, self.attention_unmasked) 
+         x = self.add_to_residual_stream(x, self.layer_norm_two, lambda norm_x: self.attention_unmasked(norm_x, key_input, value_input)) 
          x = self.add_to_residual_stream(x, self.layer_norm_three, self.feed_forward_network) # this layer needs to use encoder outputs as its inputs for keys and values, and use queries from previous sub-block outputs
         
          return x
