@@ -71,7 +71,7 @@ class SpeechTransformer(nn.Module):
         )
         self.layer_norm = LayerNorm(self.cfg)
 
-        # encoder sequential
+        # encoder as an nn.Sequential
         self.encoder = nn.Sequential(
             self.repeat,
             self.conv2d_block_one,
@@ -83,10 +83,9 @@ class SpeechTransformer(nn.Module):
             self.layer_norm
         )
 
-        # decoder components
-        self.character_embedding = CharacterEmbedding(self.cfg)
-        self.decoder_positional_encoder = PositionalEncoder(self.cfg)
 
+        # decoder as a custom module
+        self.decoder = Decoder(self.cfg)
 
     def forward(self, x: Float[t.Tensor, "batch time_steps freq_bins"]) -> Float[t.Tensor, "batch reduced_time d_model"]: # type: ignore
         return self.encoder(x)
@@ -140,7 +139,7 @@ class PositionalEncoder(nn.Module):
         super().__init__()
         self.cfg = cfg
 
-    def forward(self, x: Float[t.Tensor, "batch reduced_time_steps d_model"]) -> Float[t.Tensor, "batch posn d_model"]: #type: ignore
+    def forward(self, x: Float[t.Tensor, "batch seq_length d_model"]) -> Float[t.Tensor, "batch seq_length d_model"]: #type: ignore
 
         # get sequence length from input x
         seq_length = x.shape[1]
@@ -165,7 +164,7 @@ class PositionalEncoder(nn.Module):
         assert x.ndim == 3
         assert x.shape[-1] == self.cfg.d_model
 
-        return x + pos_encoding
+        return x + pos_encoding # this is where our embeddings get added to our positional encoding
 
 class Reshape(nn.Module):
     """Reshape can take in any einops rearrange pattern and return a rearranged output tensor
@@ -243,21 +242,13 @@ class EncoderBlock(TransformerBlock):
         self.cfg = Config()
         self.layer_norm_one = nn.LayerNorm(self.cfg.d_model)
         self.layer_norm_two = nn.LayerNorm(self.cfg.d_model)
-        self.attention = Attention(self.cfg, apply_mask=False)
+        self.attention_unmasked = Attention(self.cfg, apply_mask=False)
         self.feed_forward_network = FFN(self.cfg)
 
     def forward(self, x: Float[t.Tensor, "batch posn d_model"]) -> Float[t.Tensor, "batch posn d_model"]: # type: ignore
-        x = self.add_to_residual_stream(x, self.layer_norm_one, self.attention)
+        x = self.add_to_residual_stream(x, self.layer_norm_one, self.attention_unmasked)
         x = self.add_to_residual_stream(x, self.layer_norm_two, self.feed_forward_network)
         return x
-
-
-class DecoderBlock(TransformerBlock):
-    def __init__(self):
-        super().__init__()
-
-    def forward(self):
-        pass
 
 class Attention(nn.Module):
 
@@ -331,6 +322,33 @@ class Attention(nn.Module):
                           ) -> Float[t.Tensor, "batch n_heads query_pos key_pos"]: # type: ignore
         mask = t.triu(t.ones_like(attn_scores), diagonal = 1).to(self.cfg.device)
         return attn_scores.masked_fill_(mask != 0, self.IGNORE)
+
+### DECODER ###
+
+class Decoder(nn.Module):
+    def __init__(self, cfg):
+        super().__init__()
+        self.cfg = cfg
+        self.character_embedding = CharacterEmbedding(self.cfg)
+        self.decoder_positional_encoder = PositionalEncoder(self.cfg)
+
+    def forward(self, x):
+
+        # take in our input tokens, encode, and generate character embeddings
+        embeddings = self.character_embedding(x)
+
+        encoded_sequence = self.decoder_positional_encoder(embeddings)
+
+        assert len(encoded_sequence) == 3
+        assert len(encoded_sequence.shape[1]) <= self.cfg.max_seq_length
+        assert len(encoded_sequence.shape[2]) == self.cfg.d_model
+        
+        # pass positional encoding into decoder blocks
+
+
+
+
+
 
 class CharacterVocabulary:
     """Handles character-level tokenization for the Speech Transformer.
@@ -536,3 +554,21 @@ class CharacterEmbedding(nn.Module):
         assert x.shape[2] == self.cfg.d_model
 
         return x
+
+class DecoderBlock(TransformerBlock):
+    def __init__(self, cfg):
+        super().__init__()
+        self.cfg = cfg
+        self.layer_norm_one = nn.LayerNorm(self.cfg.d_model)
+        self.attention_masked = Attention(self.cfg, apply_mask=True)
+        self.layer_norm_two = nn.LayerNorm(self.cfg.d_model)
+        self.attention_unmasked = Attention(self.cfg, apply_mask=False)
+        self.layer_norm_three = nn.LayerNorm(self.cfg.d_model)
+        self.feed_forward_network = FFN(self.cfg)
+
+    def forward(self, x: Float[t.Tensor, "batch posn d_model"]) -> Float[t.Tensor, "batch posn d_model"]: # type: ignore
+         x = self.add_to_residual_stream(x, self.layer_norm_one, self.attention_masked)
+         x = self.add_to_residual_stream(x, self.layer_norm_two, self.attention_unmasked) 
+         x = self.add_to_residual_stream(x, self.layer_norm_three, self.feed_forward_network) # this layer needs to use encoder outputs as its inputs for keys and values, and use queries from previous sub-block outputs
+        
+         return x
