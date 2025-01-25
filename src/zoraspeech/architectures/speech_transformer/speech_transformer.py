@@ -224,7 +224,7 @@ class TransformerBlock(nn.Module):
     """
     @staticmethod
     def add_to_residual_stream(
-        x: Float[t.Tensor, "batch posn d_model"], 
+        x: Float[t.Tensor, "batch posn d_model"], # type: ignore 
         layer_norm, 
         sub_block_fn) -> Float[t.Tensor, "batch posn d_model"]: # type: ignore
         
@@ -291,7 +291,7 @@ class Attention(nn.Module):
             self, 
             query_input: Float[t.Tensor, "batch posn d_model"], # type: ignore
             key_input: Optional[Float[t.Tensor, "batch posn d_model"]] = None, # type: ignore
-            value_input: Optional[Float[t.Tensor, "batch, posn d_model"]] = None
+            value_input: Optional[Float[t.Tensor, "batch posn d_model"]] = None # type: ignore
             ) -> Float[t.Tensor, "batch posn d_model"]: # type: ignore
         # linear map
 
@@ -595,7 +595,7 @@ class DecoderBlock(TransformerBlock):
 
     def forward(
             self, 
-            x: Float[t.Tensor, "batch posn d_model"],
+            x: Float[t.Tensor, "batch posn d_model"], # type: ignore
             key_input: Optional[Float[t.Tensor, "batch posn d_model"]] = None, # type: ignore
             value_input: Optional[Float[t.Tensor, "batch, posn d_model"]] = None # type: ignore
             ) -> Float[t.Tensor, "batch posn d_model"]: # type: ignore
