@@ -1,3 +1,4 @@
+import einops
 import torch as t
 import pytest
 from zoraspeech.architectures.speech_transformer.speech_transformer import (
@@ -8,28 +9,41 @@ from zoraspeech.architectures.speech_transformer.speech_transformer import (
     CharacterEmbedding
     )
 
-def test_speech_transformer_forward_pass():
-    # TODO Modify this to match actual tensor size of (batch_size, time_steps, frequency_bins)
-    model = SpeechTransformer()
+def test_speech_transformer():
+    cfg = Config()
+
+    model = SpeechTransformer(cfg).to(cfg.device)
+    cv = CharacterVocabulary(cfg)
     
     batches = 2
     time_steps = 100
     freq_bins = model.cfg.n_freq_bins
 
-    input_tensor = t.randn(batches, time_steps, freq_bins)
-    output = model(input_tensor)
+    text_input = "listening is a practice of freedom"
+    encoded_text_input = cv.encode(text_input)
 
-    assert output.shape == (batches, time_steps // 4, model.cfg.d_model) #TODO update this as we continue to build out speech transformer
+    assert len(encoded_text_input) == model.cfg.max_seq_length
+
+    encoded_text_tensor = t.tensor(encoded_text_input, dtype=t.long)
+
+    encoded_text_tensor = einops.repeat(encoded_text_tensor, "seq_length -> b seq_length", b=batches).to(cfg.device)
+
+    spectrograms = t.randn(batches, time_steps, freq_bins).to(cfg.device)
+
+    output = model(spectrograms, encoded_text_tensor)
+
+    assert output.shape == (batches, model.cfg.max_seq_length, model.cfg.vocab_size) #TODO update this as we continue to build out speech transformer
 
 def test_positional_encoder():
-    model = SpeechTransformer()
     cfg = Config()
+    model = SpeechTransformer(cfg)
+
     batches = 2
     time_steps = 100
     d_model = cfg.d_model
     
     input_tensor = t.randn(batches, time_steps, d_model)
-    output_tensor = model.positional_encoder(input_tensor)
+    output_tensor = model.encoder.positional_encoder(input_tensor)
 
     assert output_tensor.shape == (batches, time_steps, d_model)
 

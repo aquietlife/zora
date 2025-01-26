@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from jaxtyping import Float
+from typing import Optional
 import torch as t
 import torch.nn as nn
 import einops
@@ -8,6 +9,7 @@ import string
 # config class to hold hyperparamters
 @dataclass
 class Config:
+
     debug: bool = True
     device = t.device("cuda" if t.cuda.is_available() else "cpu")
     n_freq_bins = 80 # number of frequency bins from the spectrograms, defined in paper
@@ -24,6 +26,8 @@ class Config:
     d_head: int = 64
     n_heads: int = 4
     dff = 1024
+
+    assert d_model == d_head * n_heads
 
     # character embeddings
     vocab_size: int = 78
@@ -55,9 +59,43 @@ class SpeechTransformer(nn.Module):
     Output shape: [batch_size, reduced_time_steps, d_model]
     """
 
-    def __init__(self):
+    def __init__(self, cfg: Config):
         super().__init__()
-        self.cfg = Config()
+
+        self.cfg = cfg
+
+        self.encoder = Encoder(self.cfg)
+        self.decoder = Decoder(self.cfg)
+
+    def forward(self, speech_input, text_input):
+        encoder_output = self.encoder(speech_input)
+        decoder_output = self.decoder(text_input, key_input=encoder_output, value_input=encoder_output)
+        return decoder_output
+
+### ENCODER ###
+
+class Encoder(nn.Module):
+    """Encoder
+
+    Input: [batch time_steps freq_bins]
+    Output: [batch seq_length d_model]
+    
+    This class processes a batch of spectrograms by:
+
+    - Expanding the input tensor by one dimension for channel
+    - Passing our tensor through a Conv2d block (with ReLU)
+    - Passing our tensor through another Conv2d block (with ReLU)
+    - Reshaping out tensor so it has three dimensions instead of four
+    - Passing through a linear layer so we get an output shape of d_model for the last dimension
+    - Passing our tensor through a posiitonal encoder
+    - Passing out query_input through n encoder blocks
+    - Passing our tensor through a layer norm
+    - Outputting our encoded output to be used by the decoder (for cross attention)
+    
+    """
+    def __init__(self, cfg: Config):
+        super().__init__()
+        self.cfg = cfg
 
         # encoder components
         self.repeat = Repeat(self.cfg)
@@ -65,32 +103,29 @@ class SpeechTransformer(nn.Module):
         self.conv2d_block_two = Conv2DBlock(self.cfg, self.cfg.n_out_channels, self.cfg.n_out_channels, self.cfg.conv2d_kernel_size, self.cfg.conv2d_stride, self.cfg.conv2d_padding)
         self.reshape = Reshape(self.cfg, "b c ts fb -> b ts (c fb)")
         self.linear = Linear(self.cfg)
-        self.encoder_positional_encoder = PositionalEncoder(self.cfg)
+        self.positional_encoder = PositionalEncoder(self.cfg)
         self.encoder_blocks = nn.Sequential(
             *[EncoderBlock() for _ in range(self.cfg.n_encoder_layers)]
         )
         self.layer_norm = LayerNorm(self.cfg)
 
         # encoder as an nn.Sequential
-        self.encoder = nn.Sequential(
+        self.sequential = nn.Sequential(
             self.repeat,
             self.conv2d_block_one,
             self.conv2d_block_two,
             self.reshape,
             self.linear,
-            self.encoder_positional_encoder,
+            self.positional_encoder,
             self.encoder_blocks,
             self.layer_norm
         )
 
-
-        # decoder as a custom module
-        self.decoder = Decoder(self.cfg)
-
-    def forward(self, speech_input, text_input):
-        encoder_output = self.encoder(speech_input)
-        decoder_output = self.decoder(text_input, key_input=encoder_output, value_input=encoder_output)
-        return decoder_output
+    def forward(self, x: Float[t.Tensor, "batch time_steps freq_bins"]) -> Float[t.Tensor, "batch seq_length d_model"] :  # type: ignore
+        # take in our input spectrograms, encode, and generate encoded outputs to be used by the decoder for cross-attention
+        assert x.ndim == 3, f"Expected 3 dimensions, got {x.ndim}"
+        assert x.shape[2] == self.cfg.n_freq_bins
+        return self.sequential(x)
 
 class Conv2DBlock(nn.Module):
     def __init__(self, cfg, in_channels, out_channels, kernel_size, stride, padding):
@@ -349,7 +384,7 @@ class Decoder(nn.Module):
 
     def forward(self, x,
             key_input: Optional[Float[t.Tensor, "batch posn d_model"]] = None, # type: ignore
-            value_input: Optional[Float[t.Tensor, "batch, posn d_model"]] = None # type: ignore
+            value_input: Optional[Float[t.Tensor, "batch posn d_model"]] = None # type: ignore
     ):
         # take in our input tokens, encode, and generate character embeddings
         embeddings = self.character_embedding(x)
@@ -373,9 +408,6 @@ class Decoder(nn.Module):
         probabilities = self.soft_max(x)
 
         return probabilities
-
-
-
 
 class CharacterVocabulary:
     """Handles character-level tokenization for the Speech Transformer.
@@ -597,11 +629,11 @@ class DecoderBlock(TransformerBlock):
             self, 
             x: Float[t.Tensor, "batch posn d_model"], # type: ignore
             key_input: Optional[Float[t.Tensor, "batch posn d_model"]] = None, # type: ignore
-            value_input: Optional[Float[t.Tensor, "batch, posn d_model"]] = None # type: ignore
+            value_input: Optional[Float[t.Tensor, "batch posn d_model"]] = None # type: ignore
             ) -> Float[t.Tensor, "batch posn d_model"]: # type: ignore
 
-         x = self.add_to_residual_stream(x, self.layer_norm_one, self.attention_masked)
-         x = self.add_to_residual_stream(x, self.layer_norm_two, lambda norm_x: self.attention_unmasked(norm_x, key_input, value_input)) 
-         x = self.add_to_residual_stream(x, self.layer_norm_three, self.feed_forward_network) # this layer needs to use encoder outputs as its inputs for keys and values, and use queries from previous sub-block outputs
+        x = self.add_to_residual_stream(x, self.layer_norm_one, self.attention_masked)
+        x = self.add_to_residual_stream(x, self.layer_norm_two, lambda norm_x: self.attention_unmasked(norm_x, key_input, value_input)) 
+        x = self.add_to_residual_stream(x, self.layer_norm_three, self.feed_forward_network) # this layer needs to use encoder outputs as its inputs for keys and values, and use queries from previous sub-block outputs
         
-         return x
+        return x
