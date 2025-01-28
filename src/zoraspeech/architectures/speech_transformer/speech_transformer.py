@@ -44,30 +44,21 @@ class SpeechTransformer(nn.Module):
     """Speech Transformer model that converts speech spectrograms to text.
     
     The model follows the architecture from "Speech-Transformer: A No-Recurrence 
-    Sequence-to-Sequence Model for Speech Recognition" paper.
-    
-    Architecture Overview:
-    1. Two Conv2d layers with stride 2 reduce time and frequency dimensions by 4x
-    2. Linear projection to d_model dimension
-    3. Positional encoding
-    4. Transformer encoder blocks
-    5. Layer norm
-    
-    Currently encoder-only!
-
-    Input shape: [batch_size, time_steps, freq_bins]
-    Output shape: [batch_size, reduced_time_steps, d_model]
+    Sequence-to-Sequence Model for Speech Recognition" paper.    
     """
 
     def __init__(self, cfg: Config):
         super().__init__()
-
         self.cfg = cfg
 
         self.encoder = Encoder(self.cfg)
         self.decoder = Decoder(self.cfg)
 
     def forward(self, speech_input, text_input):
+        """
+        Input: speech_input as (batch time_steps freq_bins) - spectrograms and text_input as 
+        Output shape: probabilities as (batches, max_seq_length, vocab_size)
+        """
         encoder_output = self.encoder(speech_input)
         decoder_output = self.decoder(text_input, key_input=encoder_output, value_input=encoder_output)
         return decoder_output
@@ -602,7 +593,6 @@ class CharacterEmbedding(nn.Module):
         nn.init.normal_(self.character_embedding.weight, std=cfg.init_range)
     
     def forward(self, x: Float[t.Tensor, "batch seq_length"]) -> Float[t.Tensor, "batch seq_length d_model"]: # type: ignore
-
         assert x.shape[1] <= self.cfg.max_seq_length
         assert t.all( x < self.cfg.vocab_size) 
         assert len(x.shape) == 2
@@ -633,7 +623,7 @@ class DecoderBlock(TransformerBlock):
             ) -> Float[t.Tensor, "batch posn d_model"]: # type: ignore
 
         x = self.add_to_residual_stream(x, self.layer_norm_one, self.attention_masked)
-        x = self.add_to_residual_stream(x, self.layer_norm_two, lambda norm_x: self.attention_unmasked(norm_x, key_input, value_input)) 
-        x = self.add_to_residual_stream(x, self.layer_norm_three, self.feed_forward_network) # this layer needs to use encoder outputs as its inputs for keys and values, and use queries from previous sub-block outputs
+        x = self.add_to_residual_stream(x, self.layer_norm_two, lambda norm_x: self.attention_unmasked(norm_x, key_input, value_input)) # this layer needs to use encoder outputs as its inputs for keys and values, and use queries from previous sub-block outputs
+        x = self.add_to_residual_stream(x, self.layer_norm_three, self.feed_forward_network)
         
         return x

@@ -9,10 +9,23 @@ from zoraspeech.architectures.speech_transformer.speech_transformer import (
     CharacterEmbedding
     )
 
-def test_speech_transformer():
-    cfg = Config()
+@pytest.fixture
+def device():
+    return t.device("cuda" if t.cuda.is_available() else "cpu")
 
-    model = SpeechTransformer(cfg).to(cfg.device)
+@pytest.fixture
+
+def model(device):
+    cfg = Config()
+    model = SpeechTransformer(cfg).to(device)
+    return model
+
+@pytest.fixture
+def cfg():
+    return Config()
+
+def test_speech_transformer(model, cfg):
+
     cv = CharacterVocabulary(cfg)
     
     batches = 2
@@ -32,12 +45,9 @@ def test_speech_transformer():
 
     output = model(spectrograms, encoded_text_tensor)
 
-    assert output.shape == (batches, model.cfg.max_seq_length, model.cfg.vocab_size) #TODO update this as we continue to build out speech transformer
+    assert output.shape == (batches, model.cfg.max_seq_length, model.cfg.vocab_size)
 
-def test_positional_encoder():
-    cfg = Config()
-    model = SpeechTransformer(cfg)
-
+def test_positional_encoder(model, cfg):
     batches = 2
     time_steps = 100
     d_model = cfg.d_model
@@ -52,9 +62,8 @@ def test_positional_encoder():
     assert t.allclose(output_tensor[0, 0, :] - input_tensor[0, 0, :],
                       output_tensor[1, 0, :] - input_tensor[1, 0, :])
 
-def test_attention_output_shape():
+def test_attention_output_shape(cfg):
 
-    cfg = Config()
     batch_size = 2
     seq_len = 4
     d_model = cfg.d_model
@@ -65,8 +74,7 @@ def test_attention_output_shape():
 
     assert attention.forward(input).shape == (batch_size, seq_len, d_model)
 
-def test_character_vocabulary_encode_decode():
-    cfg = Config()
+def test_character_vocabulary_encode_decode(cfg):
 
     cv = CharacterVocabulary(cfg)
 
@@ -108,9 +116,8 @@ def test_character_vocabulary_encode_decode():
     encoded = cv.encode(long_str)
     assert len(encoded) == cfg.max_seq_length
 
-def test_character_embedding():
+def test_character_embedding(cfg):
 
-    cfg = Config()
     batch_size = 2
     seq_len = 4
     d_model = cfg.d_model
