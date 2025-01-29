@@ -138,7 +138,7 @@ def test_character_embedding(cfg):
 def test_commonvoice_dataset(cfg):
     """Test CommonVoiceDataset with first 100 items"""
     # Initialize dataset with first 100 items
-    tsv_path = "/data/jo/commonvoice/cv-corpus-19.0-2024-09-13/en/validated.tsv"  # Adjust path as needed
+    tsv_path = "/data/jo/commonvoice/cv-corpus-19.0-2024-09-13/en/test.tsv"  # Adjust path as needed
     clips_path = "/data/jo/commonvoice/cv-corpus-19.0-2024-09-13/en/clips_wav"     # Adjust path as needed
     
     dataset = CommonVoiceDataset(cfg, tsv_path, clips_path)
@@ -173,7 +173,7 @@ def test_commonvoice_dataset(cfg):
 
 def test_commonvoice_dataset_processing(cfg):
     """Test audio processing pipeline"""
-    tsv_path = "/data/jo/commonvoice/cv-corpus-19.0-2024-09-13/en/validated.tsv"  # Adjust path as needed
+    tsv_path = "/data/jo/commonvoice/cv-corpus-19.0-2024-09-13/en/test.tsv"  # Adjust path as needed
     clips_path = "/data/jo/commonvoice/cv-corpus-19.0-2024-09-13/en/clips_wav"     # Adjust path as needed
     
     dataset = CommonVoiceDataset(cfg, tsv_path, clips_path)
