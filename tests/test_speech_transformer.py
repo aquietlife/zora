@@ -5,9 +5,16 @@ from zoraspeech.architectures.speech_transformer.speech_transformer import (
     SpeechTransformer, 
     Attention, 
     Config, 
-    CharacterVocabulary,
     CharacterEmbedding
     )
+
+from zoraspeech.datasets.speech_transformer.speech_transformer_dataset import (
+    CharacterVocabulary,
+    CommonVoiceDataset,
+    create_collate_fn
+)
+
+import torchaudio
 
 @pytest.fixture
 def device():
@@ -127,3 +134,142 @@ def test_character_embedding(cfg):
     ce = CharacterEmbedding(cfg).to(cfg.device)
 
     assert ce.forward(input).shape == (batch_size, seq_len, d_model)
+
+def test_commonvoice_dataset(cfg):
+    """Test CommonVoiceDataset with first 100 items"""
+    # Initialize dataset with first 100 items
+    tsv_path = "/data/jo/commonvoice/cv-corpus-19.0-2024-09-13/en/validated.tsv"  # Adjust path as needed
+    clips_path = "/data/jo/commonvoice/cv-corpus-19.0-2024-09-13/en/clips_wav"     # Adjust path as needed
+    
+    dataset = CommonVoiceDataset(cfg, tsv_path, clips_path)
+    
+    # Test dataset size
+    assert len(dataset) > 0, "Dataset should not be empty"
+    
+    # Test getting an item
+    item = dataset[0]
+    
+    # Test return format
+    assert isinstance(item, dict), "Dataset item should be a dictionary"
+    assert all(k in item for k in ['audio_features', 'text', 'audio_frames', 'text_length']), "Missing required keys in item"
+    
+    # Test audio features shape
+    audio_features = item['audio_features']
+    assert isinstance(audio_features, t.Tensor), "Audio features should be a tensor"
+    assert audio_features.dim() == 3, "Audio features should be 3D (channels, time, freq_bins)"
+    assert audio_features.shape[0] == 3, "Should have 3 channels (mel_spec, delta1, delta2)"
+    assert audio_features.shape[2] == cfg.n_freq_bins, f"Should have {cfg.n_freq_bins} frequency bins"
+    
+    # Test text encoding
+    text = item['text']
+    assert isinstance(text, list), "Encoded text should be a list"
+    assert len(text) == cfg.max_seq_length, f"Text should be padded to {cfg.max_seq_length}"
+    
+    # Test multiple items
+    for i in range(min(3, len(dataset))):
+        item = dataset[i]
+        assert item['audio_features'].shape[0] == 3, f"Item {i} should have 3 channels"
+        assert len(item['text']) == cfg.max_seq_length, f"Item {i} text should be properly padded"
+
+def test_commonvoice_dataset_processing(cfg):
+    """Test audio processing pipeline"""
+    tsv_path = "/data/jo/commonvoice/cv-corpus-19.0-2024-09-13/en/validated.tsv"  # Adjust path as needed
+    clips_path = "/data/jo/commonvoice/cv-corpus-19.0-2024-09-13/en/clips_wav"     # Adjust path as needed
+    
+    dataset = CommonVoiceDataset(cfg, tsv_path, clips_path)
+    
+    # Get an item and verify processing
+    item = dataset[0]
+    features = item['audio_features']
+    
+    # Test normalization
+    assert -10 < features.mean() < 10, "Features should be roughly normalized"
+    assert 0 < features.std() < 10, "Features should have reasonable standard deviation"
+    
+    # Test for NaN values
+    assert not t.isnan(features).any(), "Features should not contain NaN values"
+    assert not t.isinf(features).any(), "Features should not contain inf values"
+    
+    # Test delta computations
+    # First channel is mel spec, second is first-order delta, third is second-order delta
+    mel_spec = features[0]
+    first_delta = features[1]
+    second_delta = features[2]
+    
+    assert not t.allclose(mel_spec, first_delta), "First delta should differ from mel spec"
+    assert not t.allclose(first_delta, second_delta), "Second delta should differ from first delta"
+
+def test_collate_fn(cfg):
+    vocab = CharacterVocabulary(cfg)
+
+    batch_samples = [
+        {
+            'audio_features': t.randn(3, 100, 80),
+            'text': vocab.encode('mnemonic games'),
+            'audio_frames': 100,
+            'text_length': 14,
+        },
+        {
+            'audio_features': t.randn(3, 150, 80),
+            'text': vocab.encode('listening machines'),
+            'audio_frames': 150,
+            'text_length': 18,
+        },
+        {
+            'audio_features': t.randn(3, 200, 80),
+            'text': vocab.encode('stars in my pocket'),
+            'audio_frames': 200,
+            'text_length': 18,
+        },
+    ]
+
+    collate_fn = create_collate_fn(vocab)
+    batch = collate_fn(batch_samples)
+
+    # test batch structure
+    assert 'audio_features' in batch
+    assert 'text' in batch
+    assert 'audio_lengths' in batch
+    assert 'text_lengths' in batch
+    assert 'audio_masks' in batch
+    assert 'text_masks' in batch
+
+    # test shapes
+    assert len(batch['audio_features']) > 0
+    assert batch['audio_features'][0].shape[0] == len(batch_samples)
+    assert batch['audio_features'][0].shape[1] == 3
+
+    # test masks
+
+    assert t.all(batch['audio_masks'][0][:, 0]) # first frame should be valid for all samples
+    assert not t.all(batch['audio_masks'][0][:, -1]) # last frame should be padding for some samples
+
+def test_collate_fn_large_batch(cfg):
+
+    vocab = CharacterVocabulary(cfg)
+
+    batch_samples = [
+        {
+            'audio_features': t.randn(3, 10000, 80),
+            'text': vocab.encode('mnemonic games'),
+            'audio_frames': 10000,
+            'text_length': 14,
+        },
+        {
+            'audio_features': t.randn(3, 3000, 80),
+            'text': vocab.encode('listening machines'),
+            'audio_frames': 3000,
+            'text_length': 18,
+        },
+        {
+            'audio_features': t.randn(3, 8000, 80),
+            'text': vocab.encode('stars in my pocket'),
+            'audio_frames': 8000,
+            'text_length': 18,
+        },
+    ]
+
+    collate_fn = create_collate_fn(vocab)
+    batch = collate_fn(batch_samples)
+
+    assert len(batch['audio_features']) == 2
