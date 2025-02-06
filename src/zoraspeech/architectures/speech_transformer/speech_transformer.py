@@ -47,7 +47,7 @@ class Config:
     max_seq_length: int = 100
 
     # training
-    batch_size: int = 32
+    batch_size: int = 32 # isn't needed since collate_fn() handles batching for us
     num_workers: int = 4
     shuffle: bool = True
     prefetch_factor: int = 2
@@ -56,6 +56,7 @@ class Config:
     residual_dropout: float = 0.1
     attention_dropout: float = 0.1
     checkpoint_frequency: int = 10
+    grad_clip_value: float = 1.0
 
     # optimizer
     op_beta_1: float = 0.9
@@ -65,6 +66,7 @@ class Config:
     # learning rate
     k_start: int = 10
     k_end: int = 1
+    k_fixed: int = (k_start + k_end) // 2
     warmup_n: int = 25000
 
     # beam search

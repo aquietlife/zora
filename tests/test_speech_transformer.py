@@ -231,22 +231,22 @@ def test_collate_fn(cfg):
     batch = collate_fn(batch_samples)
 
     # test batch structure
-    assert 'audio_features' in batch
-    assert 'text' in batch
-    assert 'audio_lengths' in batch
-    assert 'text_lengths' in batch
-    assert 'audio_masks' in batch
-    assert 'text_masks' in batch
+    assert 'all_audio_features' in batch
+    assert 'all_texts' in batch
+    assert 'all_audio_lengths' in batch
+    assert 'all_text_lengths' in batch
+    assert 'all_audio_masks' in batch
+    assert 'all_text_masks' in batch
 
     # test shapes
-    assert len(batch['audio_features']) > 0
-    assert batch['audio_features'][0].shape[0] == len(batch_samples)
-    assert batch['audio_features'][0].shape[1] == 3
+    assert len(batch['all_audio_features']) > 0
+    assert batch['all_audio_features'][0].shape[0] == len(batch_samples)
+    assert batch['all_audio_features'][0].shape[1] == 3
 
     # test masks
 
-    assert t.all(batch['audio_masks'][0][:, 0]) # first frame should be valid for all samples
-    assert not t.all(batch['audio_masks'][0][:, -1]) # last frame should be padding for some samples
+    assert t.all(batch['all_audio_masks'][0][:, 0]) # first frame should be valid for all samples
+    assert not t.all(batch['all_audio_masks'][0][:, -1]) # last frame should be padding for some samples
 
 def test_collate_fn_large_batch(cfg):
 
@@ -276,7 +276,7 @@ def test_collate_fn_large_batch(cfg):
     collate_fn = create_collate_fn(vocab, cfg)
     batch = collate_fn(batch_samples)
 
-    assert len(batch['audio_features']) == 2
+    assert len(batch['all_audio_features']) == 2
     
 
 def test_compute_loss(model, cfg):

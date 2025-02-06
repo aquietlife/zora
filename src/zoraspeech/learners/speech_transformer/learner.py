@@ -65,10 +65,29 @@ class SpeechTransformerLearner:
 
         return -loss
 
+    def get_learning_rate(self, steps):
+        # lrate = k · d−0.5  model · min(n−0.5, n · warmup n−1.5), from paper
+        #TODO modify this later to use a variable k value once the model converges
+        lrate = self.cfg.k_fixed * (self.cfg.d_model ** -0.5) * min( (steps ** -0.5), (steps * (self.cfg.warmup_n ** -1.5) ) )
+        return lrate
 
-    def learning_step():
-        # learning step happens here
-        pass
+    def learning_step(self, audio_feature, text, padding_mask):
+        
+        #audio_features, text, padding_mask = batch['audio_features'].to(self.cfg.device), batch['text'].to(self.cfg.device), batch['padding_mask'].to(self.cfg.device)
+        probabilities = self.model(audio_feature, text)
+        loss = self.compute_loss(probabilities, text, padding_mask)
+        # log loss in wandb later on
+        loss.backward()
+        t.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.cfg.grad_clip_value) # gradient clipping
+        
+        # update learning rate
+        lr = self.get_learning_rate(self.steps)
+        for param_group in self.optimizer.param_groups:
+            param_group['lr'] = lr
+
+        self.optimizer.step()
+        self.optimizer.zero_grad()
+        return loss
 
     def learn(self):
         # training loop happens here
@@ -78,8 +97,4 @@ class SpeechTransformerLearner:
         pass
 
     def load_checkpoint(self):
-        pass
-
-
-    def get_learning_rate(self):
         pass

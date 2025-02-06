@@ -377,12 +377,12 @@ def create_collate_fn(vocab: CharacterVocabulary, cfg: Config):
 
         
         return {
-            'audio_features': all_audio_features,
-            'text': all_texts,
-            'audio_lengths': all_audio_lengths,
-            'text_lengths': all_text_lengths,
-            'audio_masks': all_audio_masks,
-            'text_masks': all_text_masks
+            'all_audio_features': all_audio_features,
+            'all_texts': all_texts,
+            'all_audio_lengths': all_audio_lengths,
+            'all_text_lengths': all_text_lengths,
+            'all_audio_masks': all_audio_masks,
+            'all_text_masks': all_text_masks
         }
     return collate_fn
         
