@@ -46,6 +46,31 @@ class Config:
     unknown_char: str = "unknown_char"
     max_seq_length: int = 100
 
+    # training
+    batch_size: int = 32
+    num_workers: int = 4
+    shuffle: bool = True
+    prefetch_factor: int = 2
+    training_steps: int = 10 # turn up to 100000 when doing full training
+    neighborhood_smoothing: float = 0.8
+    residual_dropout: float = 0.1
+    attention_dropout: float = 0.1
+    checkpoint_frequency: int = 10
+
+    # optimizer
+    op_beta_1: float = 0.9
+    op_beta_2: float = 0.98
+    op_eps:float = 10e-9
+
+    # learning rate
+    k_start: int = 10
+    k_end: int = 1
+    warmup_n: int = 25000
+
+    # beam search
+    beam_size: int  = 10
+    length_penalty_alpha: int = 1.0
+
 class SpeechTransformer(nn.Module):
     """Speech Transformer model that converts speech spectrograms to text.
     
@@ -393,7 +418,6 @@ class Decoder(nn.Module):
         assert encoded_sequence.shape[2] == self.cfg.d_model
         
         # pass positional encoding into decoder blocks
-
         x = encoded_sequence
         for block in self.decoder_blocks:
             x = block(x, key_input, value_input)

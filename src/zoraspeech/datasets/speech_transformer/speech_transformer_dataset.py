@@ -280,7 +280,7 @@ class CommonVoiceDataset(Dataset):
         }
 
 
-def create_collate_fn(vocab: CharacterVocabulary):
+def create_collate_fn(vocab: CharacterVocabulary, cfg: Config):
     def collate_fn(batch_samples: list) -> dict:
         """
         Will handle:
@@ -312,7 +312,7 @@ def create_collate_fn(vocab: CharacterVocabulary):
 
         for sample in batch_samples:
 
-            if total_frames + sample['audio_frames'] <= 20000:
+            if total_frames + sample['audio_frames'] <= cfg.frame_features:
                 current_batch.append(sample)
                 total_frames += sample['audio_frames']
             else:

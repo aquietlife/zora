@@ -14,6 +14,10 @@ from zoraspeech.datasets.speech_transformer.speech_transformer_dataset import (
     create_collate_fn
 )
 
+from zoraspeech.learners.speech_transformer.learner import (
+    SpeechTransformerLearner
+)
+
 import torchaudio
 
 @pytest.fixture
@@ -223,7 +227,7 @@ def test_collate_fn(cfg):
         },
     ]
 
-    collate_fn = create_collate_fn(vocab)
+    collate_fn = create_collate_fn(vocab, cfg)
     batch = collate_fn(batch_samples)
 
     # test batch structure
@@ -269,7 +273,89 @@ def test_collate_fn_large_batch(cfg):
         },
     ]
 
-    collate_fn = create_collate_fn(vocab)
+    collate_fn = create_collate_fn(vocab, cfg)
     batch = collate_fn(batch_samples)
 
     assert len(batch['audio_features']) == 2
+    
+
+def test_compute_loss(model, cfg):
+
+    def make_prob_dist(high_prob_idx, vocab_size):
+        prob_dist = t.ones(vocab_size)
+
+        if high_prob_idx is None:
+            return t.fill_(prob_dist, 1/vocab_size)
+
+        prob_dist[high_prob_idx] = 0.8
+        other_probs = 0.2 / (vocab_size - 1)
+        mask = t.arange(prob_dist.shape[0]) != high_prob_idx
+        prob_dist = t.where(mask, t.full_like(prob_dist, other_probs), prob_dist)
+
+        return prob_dist
+
+    prob_dist = make_prob_dist(1, cfg.vocab_size)
+
+    assert t.allclose(prob_dist.sum(), t.tensor(1.0))
+    
+    stl = SpeechTransformerLearner(cfg)
+
+    probabilities = t.stack([
+            t.stack([
+                make_prob_dist(1, cfg.vocab_size),
+                make_prob_dist(2, cfg.vocab_size),
+                make_prob_dist(3, cfg.vocab_size),
+                make_prob_dist(4, cfg.vocab_size),
+            ]),
+            t.stack([
+                make_prob_dist(1, cfg.vocab_size),
+                make_prob_dist(2, cfg.vocab_size),
+                make_prob_dist(None, cfg.vocab_size),
+                make_prob_dist(None, cfg.vocab_size),
+            ])
+        ])
+
+    target_tokens = t.tensor(
+        [
+            [1, 2, 3, 4],
+            [1, 2, 0, 0] # padded sequence
+        ]
+        )
+
+    padding_mask = t.tensor(
+        [
+            [True, True, True, True],
+            [True, True, False, False]
+        ]
+        )
+
+    print(f"\nShapes:")
+    print(f"probabilities: {probabilities.shape}")
+    print(f"target_tokens: {target_tokens.shape}")
+    print(f"padding_mask: {padding_mask.shape}")
+
+    print(f"\nValues:")
+    print(f"probabilities first position: {probabilities[0, 0, :10]}")  # first 10 values
+    print(f"target_tokens: {target_tokens}")
+    print(f"padding_mask: {padding_mask}")
+
+
+    loss = stl.compute_loss(probabilities, target_tokens, padding_mask)
+
+    print("loss: ", loss)
+    assert t.all(loss > 0), "Loss should not contain any negative values"
+    assert not t.isnan(loss).any(), "Loss should not contain NaN values"
+    assert not t.isinf(loss).any(), "Loss should not contain inf values"
+                    
+
+"""
+
+Add tests for:
+
+Now that we have the loss working correctly, we could add some more specific test cases to verify:
+Loss behavior with perfect predictions
+Loss behavior with completely wrong predictions
+Effect of padding on loss
+Effect of label smoothing (0.8 vs no smoothing)
+
+"""
