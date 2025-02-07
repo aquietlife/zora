@@ -57,6 +57,7 @@ class Config:
     attention_dropout: float = 0.1
     checkpoint_frequency: int = 10
     grad_clip_value: float = 1.0
+    validation_frequency: int = 100
 
     # optimizer
     op_beta_1: float = 0.9
