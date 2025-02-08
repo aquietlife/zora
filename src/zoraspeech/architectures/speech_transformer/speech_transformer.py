@@ -18,7 +18,7 @@ class Config:
     hop_length = (10 * sample_rate) // 1000
     win_length = (25 * sample_rate) // 1000
     f_max = sample_rate // 2
-    frame_features = 20000
+    frame_features = 20000 # testing at 2000, but should be 20000
     n_channels = 1 # number of extra channels for when we pass through conv2d blocks
     n_out_channels = 64 # from the paper
     conv2d_kernel_size = 3
@@ -47,17 +47,17 @@ class Config:
     max_seq_length: int = 100
 
     # training
-    batch_size: int = 32 # isn't needed since collate_fn() handles batching for us
+    batch_size: int = 1 # doesn't need to be a number like 32 since collate_fn() handles batching for us
     num_workers: int = 4
     shuffle: bool = True
     prefetch_factor: int = 2
-    training_steps: int = 10 # turn up to 100000 when doing full training
+    training_steps: int = 20 # turn up to 100000 when doing full training
     neighborhood_smoothing: float = 0.8
     residual_dropout: float = 0.1
     attention_dropout: float = 0.1
     checkpoint_frequency: int = 10
     grad_clip_value: float = 1.0
-    validation_frequency: int = 100
+    validation_frequency: int = 5 # turn up to 100 when doing full training
 
     # optimizer
     op_beta_1: float = 0.9
@@ -148,6 +148,7 @@ class Encoder(nn.Module):
 
     def forward(self, x: Float[t.Tensor, "batch time_steps freq_bins"]) -> Float[t.Tensor, "batch seq_length d_model"] :  # type: ignore
         # take in our input spectrograms, encode, and generate encoded outputs to be used by the decoder for cross-attention
+        print("input shape: ", x.shape)
         assert x.ndim == 3, f"Expected 3 dimensions, got {x.ndim}"
         assert x.shape[2] == self.cfg.n_freq_bins
         return self.sequential(x)

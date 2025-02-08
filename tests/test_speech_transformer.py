@@ -160,9 +160,8 @@ def test_commonvoice_dataset(cfg):
     # Test audio features shape
     audio_features = item['audio_features']
     assert isinstance(audio_features, t.Tensor), "Audio features should be a tensor"
-    assert audio_features.dim() == 3, "Audio features should be 3D (channels, time, freq_bins)"
-    assert audio_features.shape[0] == 3, "Should have 3 channels (mel_spec, delta1, delta2)"
-    assert audio_features.shape[2] == cfg.n_freq_bins, f"Should have {cfg.n_freq_bins} frequency bins"
+    assert audio_features.dim() == 2, "Audio features should be 2D (time, freq_bins)"
+    assert audio_features.shape[1] == cfg.n_freq_bins, f"Should have {cfg.n_freq_bins} frequency bins"
     
     # Test text encoding
     text = item['text']
@@ -172,7 +171,7 @@ def test_commonvoice_dataset(cfg):
     # Test multiple items
     for i in range(min(3, len(dataset))):
         item = dataset[i]
-        assert item['audio_features'].shape[0] == 3, f"Item {i} should have 3 channels"
+        #assert item['audio_features'].shape[0] == 3, f"Item {i} should have 3 channels"
         assert len(item['text']) == cfg.max_seq_length, f"Item {i} text should be properly padded"
 
 def test_commonvoice_dataset_processing(cfg):
@@ -196,12 +195,12 @@ def test_commonvoice_dataset_processing(cfg):
     
     # Test delta computations
     # First channel is mel spec, second is first-order delta, third is second-order delta
-    mel_spec = features[0]
-    first_delta = features[1]
-    second_delta = features[2]
+    #mel_spec = features[0]
+    #first_delta = features[1]
+    #second_delta = features[2]
     
-    assert not t.allclose(mel_spec, first_delta), "First delta should differ from mel spec"
-    assert not t.allclose(first_delta, second_delta), "Second delta should differ from first delta"
+    #assert not t.allclose(mel_spec, first_delta), "First delta should differ from mel spec"
+    #assert not t.allclose(first_delta, second_delta), "Second delta should differ from first delta"
 
 def test_collate_fn(cfg):
     vocab = CharacterVocabulary(cfg)

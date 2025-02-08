@@ -254,26 +254,29 @@ class CommonVoiceDataset(Dataset):
         mel_spec = self.mel_scale(spec)
         #print(f"Mel spec shape: {mel_spec.shape}")  # Should be [1, 80, time]
 
-        first_order_deltas = self.compute_deltas_transformation(mel_spec)
+        #first_order_deltas = self.compute_deltas_transformation(mel_spec)
 
-        second_order_deltas = self.compute_deltas_transformation(first_order_deltas)
+        #second_order_deltas = self.compute_deltas_transformation(first_order_deltas)
 
-        mel_spec_deltas = t.concat([mel_spec, first_order_deltas, second_order_deltas])
+        #mel_spec_deltas = t.cat([mel_spec, first_order_deltas, second_order_deltas], dim=1)
+        #mel_spec_deltas = t.stack([mel_spec, first_order_deltas, second_order_deltas], dim=0)
 
         # reorder from (channels, freq_bins, time) to (channels, time, freq_bins)
-        mel_spec_deltas = einops.rearrange(mel_spec_deltas, "c fb ts -> c ts fb")
+        #mel_spec_deltas = einops.rearrange(mel_spec_deltas, "1 fb ts -> ts fb")
+        #mel_spec_deltas = einops.rearrange(mel_spec_deltas, "f 1 fb t -> t f fb")
 
         # apply normalization
-        mean = mel_spec_deltas.mean(dim=(1,2), keepdim=True)
+        #mean = mel_spec_deltas.mean(dim=(0,1), keepdim=True)
 
-        mel_spec_deltas -= mean
+        mel_spec = einops.rearrange(mel_spec, "1 fb t -> t fb")
 
-        std = mel_spec_deltas.std(dim=(1,2), keepdim=True)
-
-        mel_spec_deltas /= std
+        mean = mel_spec.mean(dim=(0), keepdim=True)
+        mel_spec -= mean
+        std = mel_spec.std(dim=(0), keepdim=True)
+        mel_spec /= std
 
         return {
-            'audio_features' : mel_spec_deltas,
+            'audio_features' : mel_spec,
             'text' : encoded_sentence,
             'audio_frames': metadata.num_frames,
             'text_length': len(sentence)
