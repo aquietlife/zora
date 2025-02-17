@@ -317,10 +317,13 @@ class SpeechTransformerLearner:
     def get_wer(self, probabilities, text):
         # WER = (Substitutions + Deletions + Insertions) / (Total Words in Ground Truth)
         
-        predicted_characters = t.argmax(probabilities, dim=-1)
+        predicted_characters = t.argmax(probabilities, dim=-1)[0].cpu().tolist()
         predicted_text = self.cv.decode(predicted_characters)
         
-        actual_text = self.cv.decode(text)
+        actual_text = self.cv.decode(text[0].cpu().tolist())
+
+        #print(f"Predicted text: {predicted_text}")
+        #print(f"Actual text: {actual_text}")
         
         if actual_text and predicted_text == "":
             return 1.0
@@ -333,7 +336,7 @@ class SpeechTransformerLearner:
         # create matrix with extra row/column for empty string case
         rows = len(predicted_words) + 1
         cols = len(actual_words) + 1
-        dp = [[0 for _ in range(rows)] for _ in range(cols) ]
+        dp = [[0 for _ in range(cols)] for _ in range(rows) ]
 
         # inittialize first row and column
         for r in range(rows):
