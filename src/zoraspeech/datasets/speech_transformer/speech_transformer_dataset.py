@@ -278,10 +278,13 @@ class CommonVoiceDataset(Dataset):
         std = mel_spec.std(dim=(0), keepdim=True)
         mel_spec /= std
 
+        #print(metadata.num_frames)
+        #print(mel_spec.shape)
+
         return {
             'audio_features' : mel_spec,
             'text' : encoded_sentence,
-            'audio_frames': metadata.num_frames,
+            'audio_frames': mel_spec.shape[-1], # number of mel spec frames ( (audio frames / sample rate) * 100 ) - one frame every 10ms 
             'text_length': len(sentence)
         }
 
