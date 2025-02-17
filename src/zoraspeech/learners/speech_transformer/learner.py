@@ -41,7 +41,7 @@ class SpeechTransformerLearner:
             betas=(self.cfg.op_beta_1, self.cfg.op_beta_2),
             eps=self.cfg.op_eps
         )
-        self.steps = 0
+        self.steps = 1
         self.use_wandb = True
         self.cv = CharacterVocabulary(cfg)
         self.best_wer = float('inf')
@@ -72,10 +72,10 @@ class SpeechTransformerLearner:
         tokens = tokens[:, 1:]
         padding_mask = padding_mask[:, 1:]
 
-        print("After alignment:")
-        print(f"probabilities: {probabilities.shape}")
-        print(f"tokens: {tokens.shape}")
-        print(f"padding_mask: {padding_mask.shape}")
+        #print("After alignment:")
+        #print(f"probabilities: {probabilities.shape}")
+        #print(f"tokens: {tokens.shape}")
+        #print(f"padding_mask: {padding_mask.shape}")
 
         # apply label smoothed target distribution
         smoothed_target_distribution = t.zeros(probabilities.shape).to(probabilities.device)
@@ -97,6 +97,7 @@ class SpeechTransformerLearner:
     def get_learning_rate(self, steps):
         # lrate = k · d−0.5  model · min(n−0.5, n · warmup n−1.5), from paper
         #TODO modify this later to use a variable k value once the model converges
+        #print("Steps: ", steps)
         lrate = self.cfg.k_fixed * (self.cfg.d_model ** -0.5) * min( (steps ** -0.5), (steps * (self.cfg.warmup_n ** -1.5) ) )
         return lrate
 
@@ -163,7 +164,7 @@ class SpeechTransformerLearner:
             # set up loggers
             training_logger = LearnerLogger(
                 csv_filename='training_logger.csv',
-                headers=['step', 'loss', 'wer' 'learning_rate', 'gradient_norms']
+                headers=['step', 'loss', 'wer', 'learning_rate', 'gradient_norms']
                 )
 
             # set up wandb
@@ -173,8 +174,7 @@ class SpeechTransformerLearner:
                 config=asdict(self.cfg)
             ) as run:
 
-                steps = 0
-                while steps < self.cfg.training_steps:
+                while self.steps < self.cfg.training_steps:
 
                     progress_bar = tqdm(total = len(train_dataloader), desc="Learning")
 
@@ -184,47 +184,60 @@ class SpeechTransformerLearner:
                             text = batch['all_texts'][i].to(self.cfg.device)
                             padding_mask = batch['all_text_masks'][i].to(self.cfg.device)
 
-                            print("audio feature shape: ", audio_feature.shape)
-                            print("audio feature: ", audio_feature, "text: ", text, "padding mask: ", padding_mask)
-                            print('string: ', self.cv.decode(text[0].tolist()))
+                            #print("audio feature shape: ", audio_feature.shape)
+                            #print("audio feature: ", audio_feature, "text: ", text, "padding mask: ", padding_mask)
+                            #print('string: ', self.cv.decode(text[0].tolist()))
                             
                             loss, lr, grad_norm = self.learning_step(audio_feature, text, padding_mask)
 
                             progress_bar.update()
-                            progress_bar.set_description(f'Steps {steps+1}/{self.cfg.training_steps}, Loss = {loss:.2f}, LR = {lr:.2f}, GN = {grad_norm:.2f}')
+                            progress_bar.set_description(f'Steps {self.steps+1}/{self.cfg.training_steps}, Loss = {loss:.2f}, LR = {lr:.2f}, GN = {grad_norm:.2f}')
 
                             # log 
                             wandb.log(
                                 {
-                                'steps': steps,
+                                'steps': self.steps,
                                 'loss': loss,
                                 'lr': lr,
                                 'grad_norm': grad_norm,
                                 }
                                 )
-                            training_logger.save_csv([steps, loss, '-', self.get_learning_rate(), grad_norm])
+                            training_logger.save_csv([self.steps, loss, '-', self.get_learning_rate(self.steps), grad_norm])
 
-                            steps += 1
-                            if steps >= self.cfg.training_steps:
+                            if self.steps % self.cfg.validation_frequency == 0:
+                                metrics = self.run_validation(val_dataloader)
+                                # log metrics 
+                                print(metrics)
+                                wandb.log(
+                                    {
+                                    'steps': self.steps,
+                                    'loss': metrics['loss'],
+                                    'wer': metrics['wer'],
+                                    }
+                                    )
+
+                                training_logger.save_csv([self.steps, metrics['loss'], metrics['wer'], self.get_learning_rate(self.steps), 'fill_with_gradient_norm'])
+
+                                # update progress bar
+                                progress_bar.set_description(f'Steps {self.steps+1}/{self.cfg.training_steps}, Loss = {metrics['loss']:.2f} WER = {metrics['wer']:.2f}')
+                            
+                            self.steps += 1
+                            
+                            if self.steps >= self.cfg.training_steps:
                                 # finished training
                                 progress_bar.close()
                                 break 
-                    if steps % self.cfg.validation_frequency == 0:
-                        metrics = self.run_validation(val_dataloader)
-                        # log metrics 
-                        print(metrics)
-                        wandb.log(
-                            {
-                            'steps': steps,
-                            'loss': metrics['loss'],
-                            'wer': metrics['wer'],
-                            }
-                            )
+                        if self.steps >= self.cfg.training_steps:
+                            # finished training
+                            progress_bar.close()
+                            break 
+                    if self.steps >= self.cfg.training_steps:
+                        # finished training
+                        progress_bar.close()
+                        break 
 
-                        training_logger.save_csv([steps, metrics['loss'], metrics['wer'], self.get_learning_rate(), 'fill_with_gradient_norm'])
 
-                        # update progress bar
-                        progress_bar.set_description(f'Steps {steps+1}/{self.cfg.training_steps}, Loss = {metrics['loss']:.2f} WER = {metrics['wer']:.2f}')
+                
         except Exception as e:
             print(f"Training failed with error: {str(e)}")
             raise # re-reaise the exception after cleanup
@@ -238,6 +251,7 @@ class SpeechTransformerLearner:
             pass
 
     def run_validation(self, val_dataloader):
+        print("running validation")
         # Set model to eval mode
         self.model.eval()
         # Run validation loop
@@ -272,6 +286,8 @@ class SpeechTransformerLearner:
 
         # save checkpoint
         self.save_checkpoint(average_metrics)
+
+        #print(average_metrics)
 
         return average_metrics
 

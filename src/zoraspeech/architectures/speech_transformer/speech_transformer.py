@@ -51,7 +51,7 @@ class Config:
     num_workers: int = 4
     shuffle: bool = True
     prefetch_factor: int = 2
-    training_steps: int = 20 # turn up to 100000 when doing full training
+    training_steps: int = 10 # turn up to 100000 when doing full training
     neighborhood_smoothing: float = 0.8
     residual_dropout: float = 0.1
     attention_dropout: float = 0.1
@@ -148,7 +148,7 @@ class Encoder(nn.Module):
 
     def forward(self, x: Float[t.Tensor, "batch time_steps freq_bins"]) -> Float[t.Tensor, "batch seq_length d_model"] :  # type: ignore
         # take in our input spectrograms, encode, and generate encoded outputs to be used by the decoder for cross-attention
-        print("input shape: ", x.shape)
+        #print("input shape: ", x.shape)
         assert x.ndim == 3, f"Expected 3 dimensions, got {x.ndim}"
         assert x.shape[2] == self.cfg.n_freq_bins
         return self.sequential(x)

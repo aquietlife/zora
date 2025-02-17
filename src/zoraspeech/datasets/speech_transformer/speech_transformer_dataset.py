@@ -111,6 +111,7 @@ class CharacterVocabulary:
             ValueError: If indices is None or empty list
         """
         
+        #print(indices)
         if not indices:
             raise ValueError("decode expect a list but got None or an empty list")
         
@@ -243,6 +244,7 @@ class CommonVoiceDataset(Dataset):
         encoded_sentence = self.cv.encode(sentence.lower())
 
         wav_file, sample_rate = torchaudio.load(audio_path)
+        #print(f"Original audio length: {wav_file.shape}, duration: {wav_file.shape[-1]/sample_rate} seconds")
 
         metadata = torchaudio.info(audio_path)
 
@@ -252,6 +254,7 @@ class CommonVoiceDataset(Dataset):
         #print(f"Spectrogram shape: {spec.shape}")  # Should be [1, n_fft//2 + 1, time]
 
         mel_spec = self.mel_scale(spec)
+        #print(f"Mel spec shape: {mel_spec.shape}")
         #print(f"Mel spec shape: {mel_spec.shape}")  # Should be [1, 80, time]
 
         #first_order_deltas = self.compute_deltas_transformation(mel_spec)
@@ -314,6 +317,7 @@ def create_collate_fn(vocab: CharacterVocabulary, cfg: Config):
         total_frames = 0
 
         for sample in batch_samples:
+            #print(sample['audio_frames'])
 
             if total_frames + sample['audio_frames'] <= cfg.frame_features:
                 current_batch.append(sample)
